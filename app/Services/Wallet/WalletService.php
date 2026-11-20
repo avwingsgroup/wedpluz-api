@@ -24,6 +24,7 @@ use App\Services\Platform\AlertService;
 use App\Services\Platform\SettingsService;
 use App\Services\Realtime\Realtime;
 use App\Support\Codes;
+use App\Support\DemoAccounts;
 use App\Support\Money;
 use App\Support\Platform;
 use Illuminate\Support\Facades\DB;
@@ -199,6 +200,9 @@ class WalletService
     /** POST /wallet/withdrawals */
     public function withdraw(User $user, int $amount, string $bankAccountId, string $pin, string $idempotencyKey): WalletTransaction
     {
+        if (DemoAccounts::blocksMoneyOut($user->email)) {
+            throw ApiException::forbidden('Demo accounts cannot withdraw: demo balances are not real money.');
+        }
         if (! $user->isIdentityVerified()) {
             throw ApiException::identityUnverified('Verify your identity before withdrawing.');
         }

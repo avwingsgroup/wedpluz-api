@@ -33,6 +33,7 @@ use App\Services\Notifications\NotificationService;
 use App\Services\Users\UserProvisioner;
 use App\Services\Vendors\VendorService;
 use App\Services\Wallet\WalletService;
+use App\Support\DemoAccounts;
 use App\Support\Money;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -53,9 +54,12 @@ use Throwable;
  * settlements, communities, messaging, vendor reviews), so counters, ledger
  * postings and notifications are consistent with production behaviour.
  *
- * - Never runs in production. Idempotent: skips when the demo data exists.
+ * - Production: refused unless DEMO_DATA_IN_PRODUCTION=true and DEMO_DATA_PASSWORD
+ *   are set. There the password comes from DEMO_DATA_PASSWORD, no demo admin is
+ *   created, and demo accounts never move money out (App\Support\DemoAccounts).
+ * - Idempotent: skips when the demo data exists.
  * - All demo accounts use @demo.wedpluz.test (undeliverable by design) and the
- *   password below. Queued jobs and mail are faked while seeding, so no email,
+ *   password below (or DEMO_DATA_PASSWORD). Queued jobs and mail are faked while seeding, so no email,
  *   SMS or push leaves the machine.
  * - Images are imported into Cloudinary (`<root>/demo/...`) when configured.
  */
@@ -63,7 +67,7 @@ class DemoDataSeeder extends Seeder
 {
     public const PASSWORD = 'Wedpluz@2026';
 
-    public const DOMAIN = 'demo.wedpluz.test';
+    public const DOMAIN = DemoAccounts::DOMAIN;
 
     /** Demo admin TOTP secret (local only): add to an authenticator app, or use AUTH_DEV_FIXED_OTP. */
     public const ADMIN_TOTP_SECRET = 'WEDPLUZDEMOADMIN';
@@ -87,6 +91,8 @@ class DemoDataSeeder extends Seeder
         '1531746020798-e6953c6e8e04', '1494790108377-be9c29b29330',
     ];
 
+    private string $password = self::PASSWORD;
+
     /** @var array<string,string> */
     private array $imageCache = [];
 
@@ -104,9 +110,10 @@ class DemoDataSeeder extends Seeder
 
     public function run(): void
     {
-        if (app()->isProduction()) {
-            throw new RuntimeException('DemoDataSeeder must never run in production.');
+        if (! DemoAccounts::seedingAllowed()) {
+            throw new RuntimeException('Demo data is disabled in production. Set DEMO_DATA_IN_PRODUCTION=true and DEMO_DATA_PASSWORD in .env to allow it.');
         }
+        $this->password = $this->resolvePassword();
         if (User::query()->where('email', 'customer@'.self::DOMAIN)->exists()) {
             $this->command?->info('Demo data already present (customer@'.self::DOMAIN.'). Nothing to do.');
 
@@ -185,7 +192,7 @@ class DemoDataSeeder extends Seeder
                 'username' => $username,
                 'email' => $key.'@'.self::DOMAIN,
                 'phone' => '+23480'.str_pad((string) (31000000 + $i * 7919), 8, '0', STR_PAD_LEFT),
-                'password' => self::PASSWORD,
+                'password' => $this->password,
                 'email_verified_at' => now()->subDays(60 - $i),
                 'phone_verified_at' => now()->subDays(60 - $i),
                 'date_of_birth' => now()->subYears(24 + $i % 15)->subDays($i * 11)->toDateString(),
@@ -315,7 +322,7 @@ class DemoDataSeeder extends Seeder
         foreach ($cards as $n => [$key, $first, $last, $username, $avatar, $name, $slug, $headline, $category, $location, $cover, $works, $ratings, $likes]) {
             $owner = $provisioner->create([
                 'first_name' => $first, 'last_name' => $last, 'username' => $username, 'email' => $key.'@'.self::DOMAIN,
-                'phone' => '+23481'.str_pad((string) (52000000 + $n * 7577), 8, '0', STR_PAD_LEFT), 'password' => self::PASSWORD,
+                'phone' => '+23481'.str_pad((string) (52000000 + $n * 7577), 8, '0', STR_PAD_LEFT), 'password' => $this->password,
                 'email_verified_at' => now()->subDays(80), 'phone_verified_at' => now()->subDays(80), 'city' => explode(', ', $location)[count(explode(', ', $location)) - 1],
                 'country_code' => 'NG', 'avatar_url' => $this->photo($avatar, 'avatars'), 'profile_completed' => true, 'interests_completed' => true,
                 'identity_status' => 'verified', 'signup_source' => 'web',
@@ -813,14 +820,27 @@ class DemoDataSeeder extends Seeder
     private function seedAdmin(): void
     {
         $email = 'admin@'.self::DOMAIN;
-        if (AdminUser::query()->where('email', $email)->exists()) {
+        // A Super Admin with a shared password does not belong on a live server: production
+        // uses the real Super Admin created from ADMIN_BOOTSTRAP_EMAIL instead.
+        if (app()->isProduction() || AdminUser::query()->where('email', $email)->exists()) {
             return;
         }
         $admin = AdminUser::query()->create([
-            'first_name' => 'Demo', 'last_name' => 'Admin', 'email' => $email, 'password' => self::PASSWORD, 'status' => 'active',
+            'first_name' => 'Demo', 'last_name' => 'Admin', 'email' => $email, 'password' => $this->password, 'status' => 'active',
             'two_factor_secret' => self::ADMIN_TOTP_SECRET, 'two_factor_enabled' => true, 'two_factor_confirmed_at' => now(),
         ]);
         $admin->roles()->attach(AdminRole::query()->where('slug', 'super-admin')->value('id'));
+    }
+
+    /** Local: the documented demo password (or DEMO_DATA_PASSWORD). Production: DEMO_DATA_PASSWORD, required. */
+    private function resolvePassword(): string
+    {
+        $configured = (string) config('wedpluz.demo.password');
+        if (app()->isProduction() && mb_strlen($configured) < 12) {
+            throw new RuntimeException('Set DEMO_DATA_PASSWORD (at least 12 characters) in .env before seeding demo data in production.');
+        }
+
+        return $configured !== '' ? $configured : self::PASSWORD;
     }
 
     // ----------------------------------------------------------------- images
@@ -865,16 +885,21 @@ class DemoDataSeeder extends Seeder
             ['Messages / notifications', $count('messages').' / '.$count('notifications')],
             ['Ledger entries', $count('ledger_entries')],
         ]);
-        $this->command?->info('Demo password for every account: '.self::PASSWORD);
-        $this->command?->table(['Role', 'Email'], [
+        $this->command?->info(app()->isProduction()
+            ? 'Demo password for every account: the DEMO_DATA_PASSWORD value in .env'
+            : 'Demo password for every account: '.$this->password);
+        $this->command?->table(['Role', 'Email'], array_filter([
             ['Customer (tickets, wallet, chats)', 'customer@'.self::DOMAIN],
             ['Organiser, Premium (7 events)', 'ada@'.self::DOMAIN],
             ['Organiser, Basic (4 events)', 'tunde@'.self::DOMAIN],
             ['Organiser, unverified (review/draft)', 'kemi@'.self::DOMAIN],
             ['Vendor (Bloom Décor)', 'v_decor@'.self::DOMAIN],
             ['Featured vendor (Shot it moi)', 'd_shot@'.self::DOMAIN],
-            ['Admin console (Super Admin)', 'admin@'.self::DOMAIN.'  TOTP secret '.self::ADMIN_TOTP_SECRET],
-        ]);
+            app()->isProduction() ? null : ['Admin console (Super Admin)', 'admin@'.self::DOMAIN.'  TOTP secret '.self::ADMIN_TOTP_SECRET],
+        ]));
+        if (app()->isProduction()) {
+            $this->command?->warn('Production: demo accounts cannot withdraw, pay real organisers from their wallet or receive payouts. Remove them before launch: php artisan wedpluz:demo --remove');
+        }
         $this->command?->line('Wallet PIN for demo customers: 1234. Promo code: AFRO10 (Afrobeats Under The Stars).');
     }
 }

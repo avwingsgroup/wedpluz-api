@@ -161,7 +161,28 @@ ADMIN_BOOTSTRAP_EMAIL=you@wedpluz.com \
   /usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan db:seed --force
 ```
 
-**Never** run `php artisan wedpluz:demo` on a server. It refuses in production anyway.
+### Optional: demo data for testing
+
+To fill the server with the demo dataset (28 test users, vendors, events, orders, communities and chats), first switch it on in `shared/.env`:
+
+```bash
+DEMO_DATA_IN_PRODUCTION=true
+DEMO_DATA_PASSWORD=<12+ characters, shared with your testers>
+```
+
+Then run the Deploy workflow with **Seed demo data** ticked (together with **Run ReferenceDataSeeder** on the first deploy), or seed by hand with `/usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan wedpluz:demo`. Every demo account (for example `customer@demo.wedpluz.test`, `ada@demo.wedpluz.test` and `d_shot@demo.wedpluz.test`) signs in with `DEMO_DATA_PASSWORD`. The password is never printed to the deploy log.
+
+In production the demo data has guardrails:
+
+- No demo Super Admin is created; use the admin from `ADMIN_BOOTSTRAP_EMAIL`.
+- Demo accounts cannot withdraw, cannot pay a real organiser from their wallet, and demo organisers cannot be paid out, because demo balances are not real money.
+- Nothing is emailed, texted or sent on WhatsApp to demo accounts. Their phone numbers are made up. In-app and push notifications still work.
+
+Demo events and vendors are public like any others, so real visitors see them too. Remove everything before launch, then set `DEMO_DATA_IN_PRODUCTION=false`:
+
+```bash
+/usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan wedpluz:demo --remove
+```
 
 ## Step 6 — Verify
 

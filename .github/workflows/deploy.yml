@@ -15,6 +15,10 @@ on:
         description: Run ReferenceDataSeeder (first deploy; safe to repeat)
         type: boolean
         default: false
+      seed_demo:
+        description: Seed demo data incl. test users (needs DEMO_DATA_IN_PRODUCTION=true and DEMO_DATA_PASSWORD on the server)
+        type: boolean
+        default: false
 
 # One deployment at a time; a newer push waits instead of cancelling a deploy halfway.
 concurrency:
@@ -124,6 +128,7 @@ jobs:
         run: |
           SEED=""
           if [ "${{ inputs.seed_reference }}" = "true" ]; then SEED="--seed-reference"; fi
+          if [ "${{ inputs.seed_demo }}" = "true" ]; then SEED="$SEED --seed-demo"; fi
           # Same user (default): run directly. Separate app user: the dedicated sudo rule allows
           # /usr/bin/bash /tmp/wedpluz-deploy-*.sh as that user (/etc/sudoers.d/wedpluz-api).
           RUN="/usr/bin/bash"

@@ -22,6 +22,7 @@ use App\Models\Wallet;
 use App\Services\Finance\LedgerService;
 use App\Services\Wallet\WalletService;
 use App\Support\Codes;
+use App\Support\DemoAccounts;
 use App\Support\Sql;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -211,6 +212,10 @@ class OrderService
         }
 
         $organizerId = $order->event()->value('organizer_user_id');
+        if (DemoAccounts::blocksMoneyOut($user->email) && ! DemoAccounts::isDemoUserId($organizerId)) {
+            // Demo wallet money would otherwise be settled and paid out to a real organiser.
+            throw ApiException::forbidden('Demo wallets can only pay for demo events. Choose another payment method.');
+        }
         $organizerShare = max(0, $order->subtotal - $order->discount);
         $this->ledger->post([
             LedgerService::debit($wallet->availableAccount(), $order->total),

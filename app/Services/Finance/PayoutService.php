@@ -18,6 +18,7 @@ use App\Services\Admin\TwoFactorService;
 use App\Services\Notifications\NotificationService;
 use App\Services\Platform\AlertService;
 use App\Support\Codes;
+use App\Support\DemoAccounts;
 use App\Support\Money;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +51,9 @@ class PayoutService
             }
             if ($settlements->pluck('organizer_user_id')->unique()->count() !== 1) {
                 throw ApiException::validation('A payout can only include settlements of one organiser.', ['settlementIds' => ['Select settlements from a single organiser.']]);
+            }
+            if (DemoAccounts::blocksMoneyOutForUserId($settlements->first()->organizer_user_id)) {
+                throw ApiException::conflict('Demo organisers cannot be paid out: their settlements come from demo data.');
             }
             if ($settlements->contains(fn ($s) => $s->status !== SettlementStatus::Ready || $s->payout_id !== null)) {
                 throw ApiException::conflict('Only ready settlements that are not already in a payout can be paid out.');

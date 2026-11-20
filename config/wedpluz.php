@@ -132,6 +132,13 @@ return [
         'country_header' => env('GEO_COUNTRY_HEADER', 'CF-IPCountry'),
     ],
 
+    'demo' => [
+        // Demo data (php artisan wedpluz:demo) is refused in production unless this is true.
+        'allow_in_production' => (bool) env('DEMO_DATA_IN_PRODUCTION', false),
+        // Password for every demo account. Required in production, where it is never printed.
+        'password' => env('DEMO_DATA_PASSWORD'),
+    ],
+
     'health' => [
         // Required for GET /health/details outside local (header X-Health-Token).
         'token' => env('HEALTH_CHECK_TOKEN'),

@@ -2,12 +2,14 @@
 
 namespace App\Console\Commands;
 
+use App\Support\DemoAccounts;
 use Database\Seeders\DemoDataSeeder;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Seed or remove the demo dataset (local/staging only).
+ * Seed or remove the demo dataset. Production needs DEMO_DATA_IN_PRODUCTION=true and
+ * DEMO_DATA_PASSWORD to seed; --remove works everywhere.
  *
  *   php artisan wedpluz:demo            seed (skips if already present)
  *   php artisan wedpluz:demo --reset    remove demo data, then seed again
@@ -25,8 +27,10 @@ class DemoDataCommand extends Command
 
     public function handle(): int
     {
-        if (app()->isProduction()) {
-            $this->error('Demo data is never seeded or removed in production.');
+        // Removing is always allowed (it only touches @demo.wedpluz.test data), so a server can be
+        // cleaned up before launch even after DEMO_DATA_IN_PRODUCTION is switched off again.
+        if (! $this->option('remove') && ! DemoAccounts::seedingAllowed()) {
+            $this->error('Demo data is disabled in production. Set DEMO_DATA_IN_PRODUCTION=true and DEMO_DATA_PASSWORD in .env to allow it.');
 
             return self::FAILURE;
         }

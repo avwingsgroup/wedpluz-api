@@ -10,6 +10,7 @@ use App\Models\NotificationPreference;
 use App\Models\User;
 use App\Services\Platform\SettingsService;
 use App\Services\Realtime\Realtime;
+use App\Support\DemoAccounts;
 use App\Support\Sql;
 use Illuminate\Database\Eloquent\Model as EloquentModel;
 
@@ -161,6 +162,12 @@ class NotificationService
 
     private function queueRaw(?User $user, string $channel, ?string $recipient, string $templateKey, array $content, string $dedupe, ?string $notificationId): ?NotificationDelivery
     {
+        // Demo accounts have made-up phone numbers (possibly someone's real number) and
+        // undeliverable emails that would bounce: only in-app and push reach them.
+        if (in_array($channel, ['email', 'sms', 'whatsapp'], true)
+            && (DemoAccounts::isDemoEmail($user?->email) || ($channel === 'email' && DemoAccounts::isDemoEmail($recipient)))) {
+            return null;
+        }
         $delivery = Sql::insertOrNull(fn () => NotificationDelivery::query()->create([
             'notification_id' => $notificationId,
             'user_id' => $user?->id,

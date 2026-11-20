@@ -26,6 +26,8 @@
 #   --php-version X.Y    PHP version (php-fpm service and CLI binary)  (default 8.5)
 #   --health-url URL     Health endpoint             (default APP_URL/api/v1/health from shared/.env)
 #   --seed-reference     Run ReferenceDataSeeder (first deploy; idempotent)
+#   --seed-demo          Seed the demo dataset (test users, vendors, events; idempotent).
+#                        Production needs DEMO_DATA_IN_PRODUCTION=true and DEMO_DATA_PASSWORD in shared/.env
 #   --skip-migrations    Do not run database migrations
 #   --skip-health        Do not run the post-switch health check (not recommended)
 #   -h, --help           Show this help
@@ -44,6 +46,7 @@ GIT_REF=""
 REPO_URL=""
 HEALTH_URL=""
 SEED_REFERENCE=0
+SEED_DEMO=0
 SKIP_MIGRATIONS=0
 SKIP_HEALTH=0
 
@@ -59,6 +62,7 @@ while [[ $# -gt 0 ]]; do
         --php-version) PHP_VERSION="$2"; shift 2 ;;
         --health-url) HEALTH_URL="$2"; shift 2 ;;
         --seed-reference) SEED_REFERENCE=1; shift ;;
+        --seed-demo) SEED_DEMO=1; shift ;;
         --skip-migrations) SKIP_MIGRATIONS=1; shift ;;
         --skip-health) SKIP_HEALTH=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -249,6 +253,16 @@ if [[ $SEED_REFERENCE -eq 1 ]]; then
     step "Seeding reference data"
     artisan db:seed --class='Database\Seeders\ReferenceDataSeeder' --force
     ok "Reference data seeded"
+fi
+if [[ $SEED_DEMO -eq 1 ]]; then
+    step "Seeding demo data"
+    if [[ "$(env_value APP_ENV)" == "production" && "$(env_value DEMO_DATA_IN_PRODUCTION)" != "true" ]]; then
+        fail "Set DEMO_DATA_IN_PRODUCTION=true and DEMO_DATA_PASSWORD in shared/.env to seed demo data in production."
+        exit 1
+    fi
+    # Needs reference data (categories, plans); skips itself when the demo data already exists.
+    artisan wedpluz:demo
+    ok "Demo data seeded (password: DEMO_DATA_PASSWORD in shared/.env)"
 fi
 
 # ---------------------------------------------------------------- 4. caches
