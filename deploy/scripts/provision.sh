@@ -115,6 +115,12 @@ render() {
     printf '%s\n' "$content" > "$dest"
 }
 
+apt_update() {
+    # Accept a repository renaming itself (its Release "Label", e.g. ondrej/php becoming
+    # "PPA for PHP (deprecated)"), which otherwise stops apt-get update. Origin and suite
+    # changes still fail, so a source that really moved is never trusted silently.
+    apt-get update -qq --allow-releaseinfo-change-label
+}
 credential() {
     # credential <NAME>: stable random secret, generated once, kept in $CREDENTIALS_FILE (root only).
     local name="$1" value
@@ -143,7 +149,7 @@ CPUS=$(nproc)
 ok "$PRETTY_NAME · ${CPUS} vCPU · ${TOTAL_RAM_MB} MB RAM · domain $DOMAIN"
 [[ $HARDEN -eq 1 ]] || ok "Shared-server mode: no firewall, timezone, swap or global PHP/nginx/Redis changes (use --harden on a fresh server)"
 
-apt-get update -qq
+apt_update
 apt-get -y -qq install ca-certificates curl gnupg lsb-release software-properties-common unzip git acl logrotate cron rsync jq openssl
 
 # ------------------------------------------------------------------ optional hardening (fresh servers)
@@ -171,7 +177,7 @@ fi
 # ------------------------------------------------------------------ PHP
 step "PHP ${PHP_VERSION}"
 if ! pkg_available "php${PHP_VERSION}-fpm" && ! grep -rqs "ondrej/php" /etc/apt/sources.list.d/; then
-    add-apt-repository -y ppa:ondrej/php >/dev/null && apt-get update -qq
+    add-apt-repository -y ppa:ondrej/php >/dev/null && apt_update
 fi
 PHP_PKGS=()
 for ext in fpm cli pgsql mbstring xml curl zip gd intl bcmath redis readline igbinary opcache; do
@@ -233,7 +239,7 @@ if [[ $WITH_POSTGRES -eq 1 ]]; then
             curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
             echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
                 > /etc/apt/sources.list.d/pgdg.list
-            apt-get update -qq
+            apt_update
         fi
         apt-get -y -qq install "postgresql-${PG_VERSION}" "postgresql-client-${PG_VERSION}"
         find_cluster
