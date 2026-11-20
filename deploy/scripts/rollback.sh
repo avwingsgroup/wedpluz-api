@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Wedpluz API — roll back to a previous release (runs on the server as the app user):
-#   sudo -u deploy-wedpluz wedpluz-rollback [--list | --to <release>]
+#   wedpluz-rollback [--list | --to <release>]     (as the app user, usir by default)
 #
 # Usage:
 #   rollback.sh                 # switch to the release before the current one

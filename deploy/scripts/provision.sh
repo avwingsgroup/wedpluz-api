@@ -8,10 +8,10 @@
 #
 # Everything Wedpluz needs is dedicated and namespaced, so other apps on the
 # server are not touched:
-#   app user      deploy-wedpluz (system user, no login, no SSH) owns the app,
-#                 runs its PHP-FPM pool, queue workers and cron
-#   operator      usir (existing login user) — you and GitHub Actions SSH in as
-#                 usir and deploy through `sudo -u deploy-wedpluz`
+#   user          usir (existing login user) — you and GitHub Actions SSH in as
+#                 usir, and usir owns the app and runs its PHP-FPM pool, queue
+#                 workers and cron. (--app-user NAME runs the app as a separate
+#                 system user instead; usir then deploys through `sudo -u NAME`.)
 #   code          /var/www/apps/wedpluz/api/{releases,shared,current}
 #   PHP           pool "wedpluz" in php8.5-fpm, socket /run/php/php8.5-fpm-wedpluz.sock
 #                 (PHP settings live in the pool, never in global php.ini files)
@@ -19,16 +19,16 @@
 #   Supervisor    /etc/supervisor/conf.d/wedpluz-api.conf, programs wedpluz-api-*
 #   cron, logs    /etc/cron.d/wedpluz-api, /etc/logrotate.d/wedpluz-api, /var/log/apps/wedpluz
 #   backups       /var/backups/apps/wedpluz
-#   sudoers       /etc/sudoers.d/wedpluz-api (narrow rules for usir and deploy-wedpluz only)
+#   sudoers       /etc/sudoers.d/wedpluz-api (passwordless only for reloading php8.5-fpm and wedpluz-api-* programs)
 #   database      role + database "wedpluz" in PostgreSQL 19 (installed only if missing)
 #   Redis         existing instance reused as-is (installed and secured only if missing)
 #
 # Options:
 #   --domain HOST            Public API host name (required)
-#   --ssh-user NAME          Operator / CI login user               (default usir)
+#   --ssh-user NAME          Login user for you and CI             (default usir)
 #   --ssh-key "KEY"          Public key added to the operator's authorized_keys (CI deploy key)
 #   --ssh-key-file FILE      Same, from a file
-#   --app-user NAME          App owner and runtime user             (default deploy-wedpluz)
+#   --app-user NAME          User that owns and runs the app       (default: same as --ssh-user)
 #   --app-dir DIR            Application root                       (default /var/www/apps/wedpluz/api)
 #   --php VERSION            PHP version                            (default 8.5)
 #   --postgres VERSION       PostgreSQL version to install if none  (default 19)
@@ -47,7 +47,7 @@ set -Eeuo pipefail
 DOMAIN=""
 SSH_USER="usir"
 SSH_KEYS=""
-APP_USER="deploy-wedpluz"
+APP_USER=""   # defaults to SSH_USER
 APP_DIR="/var/www/apps/wedpluz/api"
 PHP_VERSION="8.5"
 PG_VERSION="19"
@@ -96,6 +96,8 @@ warn() { echo "${YELLOW}    ! $*${RESET}"; }
 die() { echo "${RED}    ✗ $*${RESET}" >&2; exit 1; }
 trap 'die "Provisioning failed at line $LINENO. Fix the cause and re-run; completed steps are skipped."' ERR
 
+[[ -n "$APP_USER" ]] || APP_USER="$SSH_USER"
+SAME_USER=$([[ "$APP_USER" == "$SSH_USER" ]] && echo 1 || echo 0)
 PHP_BIN="/usr/bin/php${PHP_VERSION}"
 FPM_SERVICE="php${PHP_VERSION}-fpm"
 FPM_SOCKET="/run/php/php${PHP_VERSION}-fpm-wedpluz.sock"
@@ -259,16 +261,16 @@ systemctl enable --now nginx supervisor >/dev/null 2>&1
 ok "Present (existing configuration left as is)"
 
 # ------------------------------------------------------------------ users and layout
-step "Users: $APP_USER (app) and $SSH_USER (operator)"
-if ! id "$APP_USER" >/dev/null 2>&1; then
-    install -d -m 755 "$(dirname "$APP_HOME")"
-    adduser --system --group --home "$APP_HOME" --shell /usr/sbin/nologin "$APP_USER" >/dev/null
-fi
-usermod -aG www-data "$APP_USER"
+step "Users: $SSH_USER$([[ $SAME_USER -eq 1 ]] && echo " (login and app)" || echo " (login) and $APP_USER (app)")"
 if ! id "$SSH_USER" >/dev/null 2>&1; then
     adduser --disabled-password --gecos "Wedpluz operator" "$SSH_USER" >/dev/null
     warn "Created login user $SSH_USER (it did not exist)."
 fi
+if [[ $SAME_USER -eq 0 ]] && ! id "$APP_USER" >/dev/null 2>&1; then
+    install -d -m 755 "$(dirname "$APP_HOME")"
+    adduser --system --group --home "$APP_HOME" --shell /usr/sbin/nologin "$APP_USER" >/dev/null
+fi
+usermod -aG www-data "$APP_USER"   # lets nginx-readable directories use group www-data
 SSH_HOME=$(getent passwd "$SSH_USER" | cut -d: -f6)   # /home/usir
 install -d -m 700 -o "$SSH_USER" -g "$SSH_USER" "$SSH_HOME/.ssh"
 AUTH_KEYS="$SSH_HOME/.ssh/authorized_keys"
@@ -278,8 +280,12 @@ while IFS= read -r key; do
     grep -qxF "$key" "$AUTH_KEYS" || echo "$key" >> "$AUTH_KEYS"
 done <<< "$SSH_KEYS"
 chown "$SSH_USER:$SSH_USER" "$AUTH_KEYS" && chmod 600 "$AUTH_KEYS"
-usermod -aG "$APP_USER" "$SSH_USER"   # read access to app logs and releases
-ok "$APP_USER: system user, no login shell, home $APP_HOME · $SSH_USER: SSH keys in $AUTH_KEYS"
+if [[ $SAME_USER -eq 1 ]]; then
+    ok "$SSH_USER logs in (keys in $AUTH_KEYS) and runs the app"
+else
+    usermod -aG "$APP_USER" "$SSH_USER"   # read access to worker logs
+    ok "$APP_USER: system user, no login shell · $SSH_USER: SSH keys in $AUTH_KEYS"
+fi
 
 step "Directory layout $APP_DIR"
 # Code (releases) is readable by group www-data so nginx can serve public/; secrets and private
@@ -368,6 +374,11 @@ install -m 755 "$DEPLOY_SRC/scripts/backup.sh" /usr/local/bin/wedpluz-backup
 install -m 755 "$DEPLOY_SRC/scripts/deploy.sh" /usr/local/bin/wedpluz-deploy
 install -m 755 "$DEPLOY_SRC/scripts/rollback.sh" /usr/local/bin/wedpluz-rollback
 render "$DEPLOY_SRC/config/sudoers.template" /tmp/wedpluz-api-sudoers
+if [[ $SAME_USER -eq 1 ]]; then
+    sed -i '/{{OPERATOR_BLOCK_START}}/,/{{OPERATOR_BLOCK_END}}/d' /tmp/wedpluz-api-sudoers
+else
+    sed -i '/{{OPERATOR_BLOCK_START}}/d; /{{OPERATOR_BLOCK_END}}/d' /tmp/wedpluz-api-sudoers
+fi
 visudo -cqf /tmp/wedpluz-api-sudoers || die "Generated sudoers rule is invalid; nothing was installed."
 install -m 440 /tmp/wedpluz-api-sudoers /etc/sudoers.d/wedpluz-api && rm -f /tmp/wedpluz-api-sudoers
 supervisorctl reread >/dev/null && supervisorctl update >/dev/null
@@ -395,12 +406,12 @@ ${GREEN}${BOLD}Wedpluz API provisioned.${RESET}
   Environment     $ENV_FILE   (mode 600, $APP_USER only)
   Secrets         $CREDENTIALS_FILE   (root only)
   PHP-FPM         pool wedpluz in $FPM_SERVICE · $FPM_SOCKET
-  Deploy          as $SSH_USER: sudo -u $APP_USER wedpluz-deploy --artifact <file>   (or GitHub Actions)
+  Deploy          as $SSH_USER: $([[ $SAME_USER -eq 1 ]] || echo "sudo -u $APP_USER ")wedpluz-deploy --artifact <file>   (or GitHub Actions)
   Logs            $APP_DIR/shared/storage/logs · $LOG_DIR · /var/log/nginx/wedpluz-api.*
   Backups         $BACKUP_DIR (nightly 01:30 UTC)
 
 ${BOLD}Next steps${RESET}
-  1. Edit the environment:  sudo -u $APP_USER nano $ENV_FILE   (provider keys, web origins, CORS)
+  1. Edit the environment:  $([[ $SAME_USER -eq 1 ]] || echo "sudo -u $APP_USER ")nano $ENV_FILE   (provider keys, web origins, CORS)
   2. $([[ $WITH_SSL -eq 1 ]] && echo "HTTPS is on." || echo "Point DNS for $DOMAIN here, then: sudo certbot --nginx -d $DOMAIN --cert-name wedpluz-api --redirect -m <email> --agree-tos")
-  3. GitHub Actions secrets (docs/deployment-vps.md, step 4): VPS_USER=$SSH_USER, VPS_APP_USER=$APP_USER.
+  3. GitHub Actions secrets (docs/deployment-vps.md, step 4): VPS_USER=$SSH_USER$([[ $SAME_USER -eq 1 ]] || echo ", variable VPS_APP_USER=$APP_USER").
 EOF

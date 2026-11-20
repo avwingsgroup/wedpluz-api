@@ -87,8 +87,9 @@ jobs:
     env:
       SHA: ${{ needs.build.outputs.sha }}
       SSH_PORT: ${{ secrets.VPS_PORT || '22' }}
-      # SSH as the operator (usir); the release runs as the app user through a dedicated sudo rule.
-      APP_USER: ${{ vars.VPS_APP_USER || 'deploy-wedpluz' }}
+      # The release runs as the login user (usir) unless VPS_APP_USER names a separate app user.
+      LOGIN_USER: ${{ secrets.VPS_USER }}
+      APP_USER: ${{ vars.VPS_APP_USER || secrets.VPS_USER }}
       TARGET: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
     steps:
       - uses: actions/download-artifact@v4
@@ -123,8 +124,11 @@ jobs:
         run: |
           SEED=""
           if [ "${{ inputs.seed_reference }}" = "true" ]; then SEED="--seed-reference"; fi
-          # Matches /etc/sudoers.d/wedpluz-api: usir may run /usr/bin/bash /tmp/wedpluz-deploy-*.sh as the app user.
-          ssh vps "sudo -n -u $APP_USER /usr/bin/bash /tmp/wedpluz-deploy-$SHA.sh --artifact /tmp/wedpluz-api-$SHA.tar.gz $SEED; status=\$?; rm -f /tmp/wedpluz-api-$SHA.tar.gz /tmp/wedpluz-deploy-$SHA.sh; exit \$status"
+          # Same user (default): run directly. Separate app user: the dedicated sudo rule allows
+          # /usr/bin/bash /tmp/wedpluz-deploy-*.sh as that user (/etc/sudoers.d/wedpluz-api).
+          RUN="/usr/bin/bash"
+          if [ "$APP_USER" != "$LOGIN_USER" ]; then RUN="sudo -n -u $APP_USER /usr/bin/bash"; fi
+          ssh vps "$RUN /tmp/wedpluz-deploy-$SHA.sh --artifact /tmp/wedpluz-api-$SHA.tar.gz $SEED; status=\$?; rm -f /tmp/wedpluz-api-$SHA.tar.gz /tmp/wedpluz-deploy-$SHA.sh; exit \$status"
 
       - name: Public health check
         if: ${{ vars.APP_URL != '' }}

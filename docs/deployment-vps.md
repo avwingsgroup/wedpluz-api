@@ -6,8 +6,7 @@ Everything Wedpluz uses is dedicated and namespaced, so other apps on the server
 
 | Resource | Wedpluz uses |
 |---|---|
-| App user (owns the code, runs PHP, workers and cron) | `deploy-wedpluz`: system user, no login shell, no SSH |
-| Operator and CI login | `usir` (home `/home/usir`), which deploys through `sudo -u deploy-wedpluz` |
+| User | `usir` (home `/home/usir`): you and GitHub Actions log in as `usir`, and `usir` owns the code and runs the PHP pool, workers and cron. A separate app user is optional (`--app-user`). |
 | Code | `/var/www/apps/wedpluz/api` |
 | PHP | PHP 8.5, dedicated pool `wedpluz` in `php8.5-fpm`, socket `/run/php/php8.5-fpm-wedpluz.sock`. Settings live in the pool; global `php.ini` files are not changed. |
 | Database | PostgreSQL 19: dedicated role and database `wedpluz`, other roles can't connect |
@@ -17,14 +16,14 @@ Everything Wedpluz uses is dedicated and namespaced, so other apps on the server
 | Cron, log rotation | `/etc/cron.d/wedpluz-api`, `/etc/logrotate.d/wedpluz-api` |
 | Logs | `/var/log/apps/wedpluz` and the app's own `shared/storage/logs` |
 | Backups | `/var/backups/apps/wedpluz` |
-| sudo rules | `/etc/sudoers.d/wedpluz-api`, covering only `usir` → `deploy-wedpluz`, and `deploy-wedpluz` → its own FPM reload and Supervisor programs |
+| sudo rules | `/etc/sudoers.d/wedpluz-api`: `usir` may reload `php8.5-fpm` and control the `wedpluz-api-*` programs without a password (unattended deploys); everything else still needs its sudo password |
 | Reverb (optional) | local port 8086, proxied by the vhost at `/app` |
 
 | Piece | File | Runs |
 |---|---|---|
 | Server setup | `deploy/scripts/provision.sh` | once, as root |
-| Release | `deploy/scripts/deploy.sh` (installed as `wedpluz-deploy`) | every deploy, as `deploy-wedpluz` |
-| Rollback | `deploy/scripts/rollback.sh` (`wedpluz-rollback`) | when needed, as `deploy-wedpluz` |
+| Release | `deploy/scripts/deploy.sh` (installed as `wedpluz-deploy`) | every deploy, as `usir` |
+| Rollback | `deploy/scripts/rollback.sh` (`wedpluz-rollback`) | when needed, as `usir` |
 | Database backup | `deploy/scripts/backup.sh` (`wedpluz-backup`) | nightly from cron |
 | Tests | `.github/workflows/ci.yml` (PHP 8.5, PostgreSQL 19, Redis 7) | every push and pull request |
 | Automatic deploy | `.github/workflows/deploy.yml` | push to `production`, or run by hand |
@@ -37,7 +36,7 @@ Everything Wedpluz uses is dedicated and namespaced, so other apps on the server
 push to production ──► GitHub Actions
                          1. tests     PHP 8.5 + PostgreSQL 19 + Redis 7, Pint
                          2. build     composer install --no-dev → release.tar.gz
-                         3. deploy    ssh as usir → scp to /tmp → sudo -u deploy-wedpluz deploy.sh
+                         3. deploy    ssh as usir → scp to /tmp → deploy.sh
                                          unpack into releases/<time>-<sha>
                                          link shared/.env and shared/storage
                                          php8.5 artisan migrate --force --isolated
@@ -55,13 +54,13 @@ Server layout:
 /var/www/apps/wedpluz/api/
 ├── current -> releases/20261120101500-3f2a9c1   nginx serves current/public
 ├── releases/                                     last 5 releases (code readable by nginx)
-├── shared/.env                                   secrets: mode 600, deploy-wedpluz only
+├── shared/.env                                   secrets: mode 600, usir only
 ├── shared/storage/                               logs, cache, private files: owner-only
 │   └── app/public/                               public uploads: readable by nginx
 └── deploy.log                                    every deploy and rollback
 ```
 
-On a shared server, other apps' PHP pools often run as `www-data`. So the `.env`, the config cache (which holds the same secrets), logs and private files are readable only by `deploy-wedpluz`. The pool also runs with `open_basedir` limited to the app directory and `/tmp`.
+On a shared server, other apps' PHP pools often run as `www-data`. So the `.env`, the config cache (which holds the same secrets), logs and private files are readable only by `usir`. The pool also runs with `open_basedir` limited to the app directory and `/tmp`.
 
 ## Before you start
 
@@ -103,7 +102,7 @@ What it does:
 1. **PHP 8.5:** installs the FPM and CLI packages with the needed extensions if missing. The server-wide `php` default is left alone; Wedpluz always calls `/usr/bin/php8.5`.
 2. **PostgreSQL:** reuses the running server, or installs PostgreSQL 19. Creates the `wedpluz` role and database, and revokes `CONNECT` from everyone else.
 3. **Redis:** reuses it without changing its configuration. If it isn't installed, installs it with a password and persistence.
-4. **Users:** creates `deploy-wedpluz` (no login) and adds the deploy key to `/home/usir/.ssh/authorized_keys`.
+4. **User:** adds the deploy key to `/home/usir/.ssh/authorized_keys` and puts `usir` in the `www-data` group, so nginx can read the public files `usir` owns.
 5. **App directory:** creates `/var/www/apps/wedpluz/api` and a `shared/.env` with a new `APP_KEY`, database password, health-check token and Reverb keys. Secrets are also kept in `/root/wedpluz-credentials.txt`.
 6. **Dedicated config:** writes the FPM pool, nginx vhost, Supervisor programs, cron, log rotation, sudo rules and the `wedpluz-deploy`/`wedpluz-rollback`/`wedpluz-backup` commands. nginx and PHP-FPM are tested before they reload; a failed test changes nothing.
 7. **HTTPS:** with `--ssl`, issues a Let's Encrypt certificate named `wedpluz-api`, with automatic renewal.
@@ -113,7 +112,7 @@ It is safe to run again, for example to add `--reverb`: finished steps are skipp
 ## Step 3 — Fill in the production environment
 
 ```bash
-sudo -u deploy-wedpluz nano /var/www/apps/wedpluz/api/shared/.env
+nano /var/www/apps/wedpluz/api/shared/.env
 ```
 
 Set at least:
@@ -142,10 +141,9 @@ In GitHub: **Settings → Environments → New environment → `production`**. O
 | Secret | `VPS_PORT` | SSH port (omit for 22) |
 | Secret | `VPS_SSH_KEY` | Contents of `~/.ssh/wedpluz_deploy` (the **private** key) |
 | Secret | `VPS_KNOWN_HOSTS` | Output of `ssh-keyscan -t ed25519 <server-ip>` (compare its fingerprint with the server's) |
-| Variable | `VPS_APP_USER` | `deploy-wedpluz` (default if unset) |
 | Variable | `APP_URL` | `https://api.wedpluz.com` |
 
-The workflow logs in as `usir` and runs only `sudo -n -u deploy-wedpluz /usr/bin/bash /tmp/wedpluz-deploy-<sha>.sh …`, which the dedicated sudo rule allows without a password. `VPS_KNOWN_HOSTS` pins the server's identity. Never replace it with `StrictHostKeyChecking=no`.
+The workflow logs in as `usir` and runs the release script there; the passwordless sudo rules cover the PHP-FPM reload and worker restart it needs. (Only if you provisioned with `--app-user <name>`, add the variable `VPS_APP_USER` = that name, and the workflow runs the script through `sudo -u`.) `VPS_KNOWN_HOSTS` pins the server's identity. Never replace it with `StrictHostKeyChecking=no`.
 
 ## Step 5 — First deployment
 
@@ -159,7 +157,7 @@ For the very first deploy, run it by hand once so reference data is seeded. Go t
 Then create the first admin. It prints the password and TOTP secret once; store both in your password manager:
 
 ```bash
-sudo -u deploy-wedpluz env ADMIN_BOOTSTRAP_EMAIL=you@wedpluz.com \
+ADMIN_BOOTSTRAP_EMAIL=you@wedpluz.com \
   /usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan db:seed --force
 ```
 
@@ -171,7 +169,7 @@ sudo -u deploy-wedpluz env ADMIN_BOOTSTRAP_EMAIL=you@wedpluz.com \
 curl https://api.wedpluz.com/api/v1/health
 # {"status":"ok","checks":{"database":"ok","redis":"ok","cache":"ok","queue":"ok","scheduler":"ok"}}
 
-sudo -u deploy-wedpluz /usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan wedpluz:health --ping-queue
+/usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan wedpluz:health --ping-queue
 sudo supervisorctl status 'wedpluz-api:*'
 sudo tail -n 20 /var/www/apps/wedpluz/api/deploy.log
 ```
@@ -189,30 +187,30 @@ git checkout production && git merge --ff-only main && git push
 **Roll back:** a failed health check rolls back on its own. To go back by hand:
 
 ```bash
-sudo -u deploy-wedpluz wedpluz-rollback --list     # * marks the live release
-sudo -u deploy-wedpluz wedpluz-rollback            # previous release
-sudo -u deploy-wedpluz wedpluz-rollback --to 20261120101500-3f2a9c1
+wedpluz-rollback --list     # * marks the live release
+wedpluz-rollback            # previous release
+wedpluz-rollback --to 20261120101500-3f2a9c1
 ```
 
 Rollbacks switch code only. Migrations stay applied, so keep them backward compatible for one release: add columns first, remove them in a later release.
 
-**Deploy from the server** (if GitHub is unavailable). This needs a read-only deploy key for the repository, readable by `deploy-wedpluz`:
+**Deploy from the server** (if GitHub is unavailable). This needs a read-only deploy key for the repository in `/home/usir/.ssh`:
 
 ```bash
-sudo -u deploy-wedpluz wedpluz-deploy --git production --repo git@github.com:avwingsgroup/wedpluz-api.git
+wedpluz-deploy --git production --repo git@github.com:avwingsgroup/wedpluz-api.git
 ```
 
 **Change an environment value:**
 
 ```bash
-sudo -u deploy-wedpluz nano /var/www/apps/wedpluz/api/shared/.env
-sudo -u deploy-wedpluz /usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan config:cache
-sudo -u deploy-wedpluz /usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan queue:restart
+nano /var/www/apps/wedpluz/api/shared/.env
+/usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan config:cache
+/usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan queue:restart
 ```
 
-**Run artisan:** `sudo -u deploy-wedpluz /usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan <command>`. `usir` may run this without a password.
+**Run artisan:** `/usr/bin/php8.5 /var/www/apps/wedpluz/api/current/artisan <command>`.
 
-**Backups:** `wedpluz-backup` runs nightly at 01:30 UTC into `/var/backups/apps/wedpluz` (14 days), and to `BACKUP_S3_URI` when set. Take one now with `sudo -u deploy-wedpluz wedpluz-backup`. To restore:
+**Backups:** `wedpluz-backup` runs nightly at 01:30 UTC into `/var/backups/apps/wedpluz` (14 days), and to `BACKUP_S3_URI` when set. Take one now with `wedpluz-backup`. To restore:
 
 ```bash
 pg_restore --clean --if-exists --no-owner -h 127.0.0.1 -U wedpluz -d wedpluz /var/backups/apps/wedpluz/wedpluz-<date>.dump
@@ -230,14 +228,15 @@ Test a restore on a spare database every quarter.
 | Deploys | `/var/www/apps/wedpluz/api/deploy.log` |
 | nginx | `/var/log/nginx/wedpluz-api.access.log`, `.error.log` |
 
-`usir` is in the `deploy-wedpluz` group and can read `/var/log/apps/wedpluz` directly. The application logs need `sudo`.
+`usir` owns all of these, so no `sudo` is needed to read them (nginx logs excepted).
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
 | Deploy fails at "Configure SSH" or "Upload release" | `VPS_KNOWN_HOSTS` matches `ssh-keyscan`; the public key is in `/home/usir/.ssh/authorized_keys`; the SSH port is open. |
-| `sudo: a password is required` in "Activate release" | `sudo visudo -cf /etc/sudoers.d/wedpluz-api`; `sudo -l -U usir` must list the `/usr/bin/bash /tmp/wedpluz-deploy-*.sh` rule. |
+| `sudo: unknown user` in "Activate release" | `VPS_APP_USER` names a user that doesn't exist; delete the variable to deploy as `usir`. |
+| "Could not reload php8.5-fpm" in the deploy log | `sudo -l -U usir` must list the `systemctl reload php8.5-fpm` rule from `/etc/sudoers.d/wedpluz-api` (re-run provisioning). |
 | Provisioning stops at "Another nginx site already serves" | Remove or rename that site's `server_name`, then re-run. |
 | `Missing .../shared/.env` | Run step 2 first. |
 | Migration error | The release is discarded before the switch, so the live site is unchanged. Fix the migration and push again. |

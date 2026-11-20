@@ -2,8 +2,8 @@
 #
 # Wedpluz API — zero-downtime release deployment.
 #
-# Runs ON THE SERVER as the app user (deploy-wedpluz), e.g.
-#   sudo -u deploy-wedpluz wedpluz-deploy --artifact /tmp/wedpluz-api-<sha>.tar.gz
+# Runs ON THE SERVER as the app user (usir by default), e.g.
+#   wedpluz-deploy --artifact /tmp/wedpluz-api-<sha>.tar.gz
 # Each release gets its own directory;
 # the `current` symlink is switched atomically only after the release is
 # installed, migrated and cached. If the health check fails after the switch,

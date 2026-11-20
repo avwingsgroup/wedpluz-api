@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Wedpluz API — PostgreSQL backup (installed as /usr/local/bin/wedpluz-backup;
-# runs nightly from /etc/cron.d/wedpluz-api as the app user deploy-wedpluz).
+# runs nightly from /etc/cron.d/wedpluz-api as the app user, usir by default).
 #
 # Writes a compressed custom-format dump (restorable with pg_restore) and keeps
 # the last N days. Reads the connection from shared/.env. Optionally copies the
