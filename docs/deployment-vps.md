@@ -154,7 +154,7 @@ git checkout main && git pull
 git checkout -b production && git push -u origin production
 ```
 
-For the very first deploy, run it by hand once so reference data is seeded. Go to **Actions → Deploy → Run workflow** with ref `production`, and tick **Run ReferenceDataSeeder**. This seeds categories, plans, templates, admin roles and the onboarding slides.
+For the very first deploy, run it by hand once so reference data is seeded. Go to **Actions → Deploy → Run workflow**, choose **Use workflow from: `main`**, leave **ref** empty (it then deploys that branch's latest commit), and tick **Run ReferenceDataSeeder**. This seeds categories, plans, templates, admin roles and the onboarding slides.
 
 Then create the first admin. It prints the password and TOTP secret once; store both in your password manager:
 

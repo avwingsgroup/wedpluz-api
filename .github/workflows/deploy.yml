@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch, tag or commit to deploy
-        required: true
-        default: production
+        description: Branch, tag or commit to deploy (leave empty to deploy the branch chosen in "Use workflow from")
+        required: false
+        default: ''
       seed_reference:
         description: Run ReferenceDataSeeder (first deploy; safe to repeat)
         type: boolean
@@ -57,18 +57,23 @@ jobs:
           echo "$SHA" > REVISION
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           # Ship only what runs in production: no tests, docs, CI files, local env or storage contents.
+          # The archive is written OUTSIDE the directory being archived: GNU tar exits 1
+          # ("file changed as we read it") if the output file appears inside it.
           tar --exclude='./.git' --exclude='./.github' --exclude='./tests' --exclude='./docs' \
               --exclude='./node_modules' --exclude='./storage' --exclude='./.env' --exclude='./.env.*' \
-              --exclude='./phpunit.xml' --exclude='./auth2.md' --exclude='./release.tar.gz' \
-              -czf release.tar.gz .
-          ls -lh release.tar.gz
+              --exclude='./phpunit.xml' --exclude='./auth2.md' --exclude='./dist' \
+              -czf "$RUNNER_TEMP/release.tar.gz" .
+          # One flat folder for the artifact, so the deploy job finds both files at its root.
+          mkdir -p dist
+          mv "$RUNNER_TEMP/release.tar.gz" dist/release.tar.gz
+          cp deploy/scripts/deploy.sh dist/deploy.sh
+          ls -lh dist/
 
       - uses: actions/upload-artifact@v4
         with:
           name: release
-          path: |
-            release.tar.gz
-            deploy/scripts/deploy.sh
+          path: dist/
+          if-no-files-found: error
           retention-days: 7
 
   deploy:
@@ -110,7 +115,7 @@ jobs:
       - name: Upload release
         run: |
           scp -q release.tar.gz "vps:/tmp/wedpluz-api-$SHA.tar.gz"
-          scp -q deploy/scripts/deploy.sh "vps:/tmp/wedpluz-deploy-$SHA.sh"
+          scp -q deploy.sh "vps:/tmp/wedpluz-deploy-$SHA.sh"
           # Readable by the app user, which unpacks the release.
           ssh vps "chmod 644 /tmp/wedpluz-api-$SHA.tar.gz /tmp/wedpluz-deploy-$SHA.sh"
 
