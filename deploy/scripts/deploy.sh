@@ -190,7 +190,9 @@ step "Preflight"
 [[ -z "$ARTIFACT" || -f "$ARTIFACT" ]] || { fail "Artifact not found: $ARTIFACT"; exit 1; }
 [[ -z "$GIT_REF" || -n "$REPO_URL" ]] || { fail "--git requires --repo."; exit 1; }
 [[ -f "$SHARED_DIR/.env" ]] || { fail "Missing $SHARED_DIR/.env (run provision.sh, then fill in the values)."; exit 1; }
-[[ -n "$(env_value APP_KEY)" ]] || { fail "APP_KEY is empty in shared/.env."; exit 1; }
+[[ -r "$SHARED_DIR/.env" ]] || { fail "$(id -un) cannot read $SHARED_DIR/.env. Fix: sudo chown $(id -un):$(id -un) $SHARED_DIR/.env && sudo chmod 600 $SHARED_DIR/.env"; exit 1; }
+grep -qE '^APP_KEY=' "$SHARED_DIR/.env" || { fail "No APP_KEY line in shared/.env. Add one: echo \"APP_KEY=base64:\$(openssl rand -base64 32)\" >> $SHARED_DIR/.env"; exit 1; }
+[[ -n "$(env_value APP_KEY)" ]] || { fail "APP_KEY is empty in shared/.env. Set one: sed -i \"s|^APP_KEY=.*|APP_KEY=base64:\$(openssl rand -base64 32)|\" $SHARED_DIR/.env"; exit 1; }
 [[ "$(env_value APP_ENV)" == "production" || "$(env_value APP_ENV)" == "staging" ]] || warn "APP_ENV is '$(env_value APP_ENV)' (expected production or staging)."
 [[ "$(env_value APP_DEBUG)" != "true" ]] || warn "APP_DEBUG=true on a server exposes stack traces. Set it to false."
 FREE_MB=$(df -Pm "$APP_DIR" | awk 'NR==2 {print $4}')
