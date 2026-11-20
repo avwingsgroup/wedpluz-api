@@ -138,6 +138,16 @@ return [
     'google' => [
         'certs_url' => 'https://www.googleapis.com/oauth2/v3/certs',
         'issuers' => ['https://accounts.google.com', 'accounts.google.com'],
+        // OAuth 2.0 web client for the redirect (authorization-code + PKCE) flow.
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        // Default callback on the web app; GOOGLE_REDIRECT_URIS adds more (e.g. localhost). Every one
+        // must also be an "Authorized redirect URI" of the client in Google Cloud Console.
+        'redirect_uri' => env('GOOGLE_REDIRECT_URI'),
+        'redirect_uris' => array_values(array_filter(array_map('trim', explode(',', (string) env('GOOGLE_REDIRECT_URIS', ''))))),
+        'auth_url' => 'https://accounts.google.com/o/oauth2/v2/auth',
+        'token_url' => 'https://oauth2.googleapis.com/token',
+        'state_ttl_minutes' => 10,
     ],
 
     // ---- Live streaming (LiveKit) ------------------------------------------

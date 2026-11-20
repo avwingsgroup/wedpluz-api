@@ -14,6 +14,11 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(ReferenceDataSeeder::class);
         $this->bootstrapSuperAdmin();
+
+        // Local development gets the demo dataset too (set SEED_DEMO_DATA=false to skip).
+        if (app()->environment('local') && filter_var(env('SEED_DEMO_DATA', true), FILTER_VALIDATE_BOOL)) {
+            $this->call(DemoDataSeeder::class);
+        }
     }
 
     /**

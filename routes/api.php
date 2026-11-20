@@ -23,6 +23,7 @@ Route::prefix('auth')->name('auth.')->group(function () {
         Route::post('login', [AuthController::class, 'login'])->name('login');
         Route::post('register', [AuthController::class, 'register'])->name('register');
         Route::post('social', [AuthController::class, 'social'])->name('social');
+        Route::get('google/redirect', [AuthController::class, 'googleRedirect'])->name('google.redirect');
     });
     Route::middleware('throttle:otp')->group(function () {
         Route::post('otp/send', [AuthController::class, 'sendOtp'])->name('otp.send');

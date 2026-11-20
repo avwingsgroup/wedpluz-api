@@ -11,6 +11,7 @@ class CreateVendorProfileRequest extends ApiRequest
     {
         return [
             'businessName' => ['required', 'string', 'max:200'],
+            'headline' => ['sometimes', 'nullable', 'string', 'max:80'],
             'location' => ['required', 'string', 'max:200'],
             'categoryId' => ['required', 'string', 'exists:vendor_categories,id'],
             'description' => ['required', 'string', 'max:5000'],

@@ -35,6 +35,29 @@ Point the frontend at `VITE_API_BASE_URL=http://localhost:8000/api/v1`. Local Vi
 
 Providers left unconfigured are simply unavailable (for example, a payment method without keys is rejected at checkout). For QA without provider sandboxes, set `PAYMENTS_ALLOW_SIMULATION=true` (ignored in production).
 
+## Demo data
+
+`php artisan migrate --seed` in `local` also seeds a demo dataset (set `SEED_DEMO_DATA=false` to skip). To manage it on its own:
+
+```bash
+php artisan wedpluz:demo           # seed (skips if present)
+php artisan wedpluz:demo --reset   # remove demo data and seed again
+php artisan wedpluz:demo --remove  # remove demo data only (real local accounts are kept)
+```
+
+It creates 23 accounts, 10 vendors with portfolios and reviews, and 13 events: live, featured, multi-day, online, free, approval-only, completed (with check-ins and a settlement), pending review and draft. It also adds 40 paid orders and 64 tickets bought through the real wallet checkout, wallets with ledger history, communities with stories and group chat, direct messages, notifications, banners, support tickets and a moderation report. Images are imported into Cloudinary under `<root>/demo/`. Nothing is emailed: demo addresses use the reserved `.test` domain, and jobs and mail are faked while seeding. It never runs in production.
+
+| Account | Email | Notes |
+|---|---|---|
+| Customer | `customer@demo.wedpluz.test` | tickets, wallet (PIN `1234`), chats, saved items |
+| Organiser (Premium) | `ada@demo.wedpluz.test` | 7 events, team, vendors, tasks, requests, settlement |
+| Organiser (Basic) | `tunde@demo.wedpluz.test` | 4 events, manager on Ada's wedding |
+| Organiser (unverified) | `kemi@demo.wedpluz.test` | pending-review and draft events |
+| Vendor | `v_decor@demo.wedpluz.test` | Bloom Décor (other vendors: `v_photo@`, `v_catering@`, …) |
+| Admin console | `admin@demo.wedpluz.test` | TOTP secret `WEDPLUZDEMOADMIN` |
+
+Password for every demo account: `Wedpluz@2026`. Promo code `AFRO10` works on *Afrobeats Under The Stars*.
+
 ## Tests
 
 ```bash

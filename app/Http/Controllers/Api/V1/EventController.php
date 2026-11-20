@@ -13,6 +13,7 @@ use App\Services\Events\EventPresenter;
 use App\Services\Events\EventRequestService;
 use App\Support\ListQuery;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -76,9 +77,12 @@ class EventController extends Controller
         return $this->ok($this->presenter->summaries($events, $this->optionalCustomer()));
     }
 
-    public function show(string $slug): JsonResponse
+    public function show(string $slug): JsonResponse|RedirectResponse
     {
         $event = Event::query()->where('slug', $slug)->orWhere('id', $slug)->first();
+        if ($event === null && ($moved = $this->movedTo('event', $slug, Event::class))) {
+            return $moved;
+        }
         $viewer = $this->optionalCustomer();
         if ($event === null || ! $this->access->canView($viewer, $event)) {
             throw ApiException::notFound('Event not found.');

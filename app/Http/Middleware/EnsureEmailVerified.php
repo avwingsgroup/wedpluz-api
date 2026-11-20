@@ -18,7 +18,7 @@ class EnsureEmailVerified
     {
         $user = $request->user();
         if ($user instanceof User && ! $user->hasVerifiedEmail()) {
-            throw ApiException::forbidden('Verify your email to continue.');
+            throw ApiException::emailUnverified();
         }
 
         return $next($request);

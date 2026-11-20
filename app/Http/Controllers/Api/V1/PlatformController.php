@@ -9,6 +9,7 @@ use App\Http\Requests\Account\SupportTicketRequest;
 use App\Http\Requests\Account\UploadRequest;
 use App\Http\Requests\Account\UploadSignRequest;
 use App\Http\Resources\Fmt;
+use App\Models\Banner;
 use App\Models\CmsPage;
 use App\Models\Interest;
 use App\Models\SupportTicket;
@@ -19,6 +20,7 @@ use App\Services\Moderation\ReportService;
 use App\Services\Platform\SettingsService;
 use App\Services\Support\SupportService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /** Uploads, public profiles, CMS pages, interests, config, support tickets and reports. */
@@ -43,6 +45,29 @@ class PlatformController extends Controller
     public function config(SettingsService $settings): JsonResponse
     {
         return $this->ok($settings->publicConfig());
+    }
+
+    /**
+     * GET /banners?placement=&audience= — banners live right now, highest
+     * priority first (public, cached 5 minutes). `placement=onboarding` is the
+     * sign-up/login carousel. Images are delivered through Cloudinary.
+     */
+    public function banners(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'placement' => ['nullable', 'string', 'in:'.implode(',', Banner::PLACEMENTS)],
+            'audience' => ['nullable', 'string', 'in:all,individuals,businesses,guests'],
+        ]);
+        $banners = Banner::query()->live()
+            ->when($data['placement'] ?? null, fn ($q, $p) => $q->where('placement', $p))
+            ->when($data['audience'] ?? null, fn ($q, $a) => $q->whereIn('audience', ['all', $a]))
+            ->orderByDesc('priority')->orderBy('created_at')->limit(20)->get();
+
+        return $this->ok($banners->map(fn (Banner $b) => [
+            'id' => $b->id, 'title' => $b->title, 'subtitle' => $b->subtitle, 'imageUrl' => $b->image_url,
+            'ctaLabel' => $b->cta_label, 'ctaUrl' => $b->cta_url, 'placement' => $b->placement, 'audience' => $b->audience,
+            'priority' => $b->priority,
+        ])->values()->all());
     }
 
     public function page(string $slug): JsonResponse

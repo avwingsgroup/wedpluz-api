@@ -15,6 +15,16 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Env;
+use Illuminate\Support\Facades\Route;
+
+// Thread-safe SAPIs (e.g. Apache mod_php on Windows, mpm_winnt): putenv()/getenv()
+// are process-wide and not thread-safe, so concurrent requests can lose .env values
+// (APP_ENV falling back to "production", CORS origins disappearing). Keep env values
+// in the per-thread $_SERVER/$_ENV only. CLI, PHP-FPM and FastCGI are unaffected.
+if (ZEND_THREAD_SAFE && PHP_SAPI !== 'cli') {
+    Env::disablePutenv();
+}
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -24,6 +34,8 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         channels: __DIR__.'/../routes/channels.php',
         health: '/up',
+        // Sitemaps and link-preview pages: outside /api/v1, no session/cookies/CSRF.
+        then: fn () => Route::middleware('throttle:public')->group(base_path('routes/seo.php')),
     )
     ->withBroadcasting(
         __DIR__.'/../routes/channels.php',

@@ -1695,6 +1695,66 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '500':
           $ref: '#/components/responses/ServerError'
+  /banners:
+    get:
+      operationId: publicBanners
+      summary: List live banners for a placement
+      tags:
+        - Account & Profile
+      x-wedpluz-status: required
+      description: >-
+        Additive. Public, cached 5 minutes. Banners that are active and inside their schedule, highest `priority` first.
+        `placement=onboarding` returns the sign-up / login image carousel (image + caption per slide). Images are
+        Cloudinary URLs already sized for display.
+      security: []
+      parameters:
+        - name: placement
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [home_hero, home_inline, events_top, vendors_top, app_home, onboarding]
+        - name: audience
+          in: query
+          required: false
+          description: Also returns banners for `all`.
+          schema:
+            type: string
+            enum: [all, individuals, businesses, guests]
+      responses:
+        '200':
+          description: Live banners.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, imageUrl, placement, priority]
+                      properties:
+                        id: {type: string}
+                        title: {type: string, description: 'Slide caption, e.g. "Let the Experience Find You".'}
+                        subtitle: {type: ['string', 'null']}
+                        imageUrl: {type: ['string', 'null'], format: uri}
+                        ctaLabel: {type: ['string', 'null']}
+                        ctaUrl: {type: ['string', 'null'], format: uri}
+                        placement: {type: string}
+                        audience: {type: string}
+                        priority: {type: integer}
+              example:
+                data:
+                  - id: bnr_01JDEMO1
+                    title: Let the Experience Find You
+                    subtitle: null
+                    imageUrl: https://res.cloudinary.com/wedpluz/image/upload/f_auto,q_auto,c_limit,w_1200,h_1200/wedpluz/onboarding/slide-1
+                    ctaLabel: null
+                    ctaUrl: null
+                    placement: onboarding
+                    audience: all
+                    priority: 99
   /config:
     get:
       operationId: accountConfig
@@ -11970,6 +12030,7 @@ paths:
                     - events_top
                     - vendors_top
                     - app_home
+                    - onboarding
                 audience:
                   type: string
                   enum:
@@ -12113,6 +12174,7 @@ paths:
                     - events_top
                     - vendors_top
                     - app_home
+                    - onboarding
                 audience:
                   type: string
                   enum:
@@ -14336,6 +14398,68 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
+  /auth/google/redirect:
+    get:
+      operationId: authGoogleRedirect
+      summary: Start Google sign-in by redirect
+      tags:
+        - Auth
+      x-wedpluz-status: required
+      description: >-
+        Additive. Returns Google's consent URL for the authorization-code flow with PKCE. Send the browser to `url`;
+        Google returns to `redirectUri` with `code` and `state`, which the web app posts to `POST /auth/social`.
+        The client secret and PKCE verifier stay on the server. `state` is single-use and expires after 10 minutes.
+      security: []
+      parameters:
+        - name: redirectUri
+          in: query
+          required: false
+          description: Callback on the web app; must be one of the backend's allowed callbacks (default production callback when omitted).
+          schema:
+            type: string
+            format: uri
+        - name: loginHint
+          in: query
+          required: false
+          description: Pre-selects this Google account.
+          schema:
+            type: string
+            format: email
+      responses:
+        '200':
+          description: Consent URL.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    required: [url, state, redirectUri, expiresIn]
+                    properties:
+                      url:
+                        type: string
+                        format: uri
+                      state:
+                        type: string
+                      redirectUri:
+                        type: string
+                        format: uri
+                      expiresIn:
+                        type: integer
+                        description: Seconds until `state` expires.
+        '422':
+          description: The callback is not allowed (`VALIDATION_ERROR`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorBody'
+        '503':
+          description: Google sign-in is not configured on the server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorBody'
   /auth/otp/send:
     post:
       operationId: authSendOtp
@@ -27650,6 +27774,12 @@ paths:
               properties:
                 businessName:
                   type: string
+                headline:
+                  type:
+                    - string
+                    - 'null'
+                  maxLength: 80
+                  description: Additive. Short specialty for vendor cards.
                 location:
                   type: string
                 categoryId:
@@ -30980,6 +31110,7 @@ components:
             - OTP_EXPIRED
             - ACCOUNT_SUSPENDED
             - IDENTITY_UNVERIFIED
+            - EMAIL_UNVERIFIED
             - INSUFFICIENT_FUNDS
             - PIN_INVALID
             - SERVER_ERROR
@@ -31967,6 +32098,7 @@ components:
             - events_top
             - vendors_top
             - app_home
+            - onboarding
         audience:
           type: string
           enum:
@@ -36995,11 +37127,17 @@ components:
             - google
         idToken:
           type: string
+          description: Google ID token from Google Identity Services (web button / One Tap) or the Android/iOS SDK. Send this OR `code` + `state`.
+        code:
+          type: string
+          description: Additive. Redirect flow — the `code` query parameter Google appended to the web callback URL.
+        state:
+          type: string
+          description: Additive. Redirect flow — the `state` query parameter from the same callback; required with `code`, single-use, valid 10 minutes.
         deviceName:
           type: string
       required:
         - provider
-        - idToken
     StatusPost:
       type: object
       properties:
@@ -38258,6 +38396,12 @@ components:
       properties:
         businessName:
           type: string
+        headline:
+          type:
+            - string
+            - 'null'
+          maxLength: 80
+          description: Additive. Short specialty for vendor cards.
         location:
           type: string
         categoryId:
@@ -38385,6 +38529,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MediaItem'
+        headline:
+          type:
+            - string
+            - 'null'
+          maxLength: 80
+          description: Additive. Short specialty shown on vendor cards (e.g. "Bridal wear rentals"); null means show `category.name`.
+        coverUrl:
+          type:
+            - string
+            - 'null'
+          format: uri
+          description: Additive. Cover image for cards (served through Cloudinary); fall back to the first `featuredWorks` image.
         availability:
           type: string
           enum:

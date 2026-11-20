@@ -18,7 +18,7 @@ After changing variables in production run `php artisan config:cache` and `php a
 | `APP_LOCALE`, `APP_FALLBACK_LOCALE`, `APP_FAKER_LOCALE` | Opt | `en` | |
 | `APP_MAINTENANCE_DRIVER` | Opt | `file` | Use `cache` with several web nodes. |
 | `BCRYPT_ROUNDS` | Opt | `12` | |
-| `WEDPLUZ_WEB_ORIGIN` | Req | `http://localhost:5173` | Customer web app origin for links in emails and payment return URLs. |
+| `WEDPLUZ_WEB_ORIGIN` | Req | `http://localhost:5173` | Customer web app origin for links in emails, payment return URLs, sitemap `<loc>`s and share-page canonical links. |
 | `WEDPLUZ_ADMIN_ORIGIN` | Req | `http://localhost:5174` | Admin console origin for invitation links. |
 | `CORS_ALLOWED_ORIGINS` | Req | wedpluz.com, www, admin | Comma-separated. Local Vite origins are added automatically outside production. |
 | `WEDPLUZ_TIMEZONE` | Opt | `Africa/Lagos` | Display timezone for emails, PDFs and reports. Storage is always UTC. |
@@ -70,8 +70,11 @@ After changing variables in production run `php artisan config:cache` and `php a
 | `AUTH_ADMIN_IDLE_TIMEOUT` | Opt | `30` | Minutes without a request before an admin token dies. |
 | `AUTH_ADMIN_INVITE_TTL_HOURS` | Opt | `72` | |
 | `AUTH_CHECK_BREACHED_PASSWORDS` | Opt | `true` | Production only; checks new passwords against the Have I Been Pwned range API (k-anonymity: only a 5-character hash prefix leaves the server). |
-| `AUTH_DEV_FIXED_OTP` | Dev | — | A fixed OTP/TOTP code accepted in non-production for QA. Ignored in production. |
-| `GOOGLE_CLIENT_IDS` | Rec | — | Comma-separated OAuth client IDs (web, Android, iOS). Google sign-in is rejected without them. |
+| `AUTH_DEV_FIXED_OTP` | Dev | — | A fixed code accepted in non-production for QA as any email/SMS OTP and as the admin 2FA code. Use 4 digits (customer OTPs are 4 digits; any non-matching admin code falls back to it). Ignored in production. |
+| `GOOGLE_CLIENT_IDS` | Rec | `GOOGLE_CLIENT_ID` | Comma-separated client IDs whose ID tokens are accepted (web, Android, iOS). `GOOGLE_CLIENT_ID` is always included. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Rec | — | OAuth 2.0 web client for the redirect flow (`GET /auth/google/redirect` → `POST /auth/social` with `code`). The secret is used only server-to-server with Google. |
+| `GOOGLE_REDIRECT_URI` | Rec | — | Default web callback, e.g. `https://wedpluz.com/auth/google/callback`. Must be an Authorized redirect URI of the client in Google Cloud Console. |
+| `GOOGLE_REDIRECT_URIS` | Opt | — | Extra allowed callbacks (comma-separated), e.g. `http://localhost:5173/auth/google/callback` for local development. Each must also be registered in Google Cloud Console. |
 | `ADMIN_BOOTSTRAP_EMAIL`, `ADMIN_BOOTSTRAP_PASSWORD` | First deploy | — | `php artisan db:seed` creates this super admin once and prints its TOTP secret. Remove afterwards. |
 
 ## Business defaults

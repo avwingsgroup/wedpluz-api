@@ -12,7 +12,8 @@ $origins = array_values(array_filter(array_map('trim', explode(',', (string) env
     'CORS_ALLOWED_ORIGINS',
     'https://wedpluz.com,https://www.wedpluz.com,https://admin.wedpluz.com'
 )))));
-if (env('APP_ENV', 'production') !== 'production') {
+// config/app.php loads first (alphabetical), so app.env is already resolved here.
+if (config('app.env', 'production') !== 'production') {
     $origins = array_merge($origins, ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']);
 }
 

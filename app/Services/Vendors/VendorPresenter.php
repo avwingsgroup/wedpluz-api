@@ -58,10 +58,13 @@ class VendorPresenter
             'id' => $v->id,
             'userId' => $v->user_id,
             'businessName' => $v->business_name,
+            // Short specialty for cards ("Bridal wear rentals"); null = show the category name.
+            'headline' => $v->headline,
             'slug' => $v->slug,
             'category' => $v->category ? ['id' => $v->category->id, 'name' => $v->category->name, 'slug' => $v->category->slug] : ['id' => '', 'name' => 'Other', 'slug' => 'other'],
             'location' => $v->location,
             'avatarUrl' => $v->avatar_url,
+            'coverUrl' => $v->cover_url,
             'rating' => round((float) $v->rating_avg, 1),
             'ratingsCount' => $v->ratings_count,
             'likesCount' => $v->likes_count,

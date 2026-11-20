@@ -7,14 +7,17 @@ use App\Exceptions\ApiException;
 use App\Http\Middleware\RequestContext;
 use App\Http\Resources\UserResource;
 use App\Integrations\Google\GoogleIdTokenVerifier;
+use App\Integrations\Google\GoogleOAuthClient;
 use App\Models\SocialAccount;
 use App\Models\User;
 use App\Services\Notifications\NotificationService;
 use App\Services\Users\UserProvisioner;
 use App\Support\Platform;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 /** Customer registration, login, Google sign-in, logout and password recovery. */
 class AuthService
@@ -25,7 +28,54 @@ class AuthService
         private readonly UserProvisioner $provisioner,
         private readonly GoogleIdTokenVerifier $google,
         private readonly NotificationService $notifications,
+        private readonly GoogleOAuthClient $googleOAuth,
     ) {}
+
+    /**
+     * GET /auth/google/redirect: start "Continue with Google" by redirect.
+     * Returns Google's consent URL. `state` is single-use and expires after 10
+     * minutes; the PKCE verifier and the chosen callback stay server-side.
+     *
+     * @return array{url:string, state:string, redirectUri:string, expiresIn:int}
+     */
+    public function googleAuthorization(?string $redirectUri, ?string $loginHint = null): array
+    {
+        if (! $this->googleOAuth->isConfigured()) {
+            throw new ApiException('Google sign-in is not available right now.', 'SERVER_ERROR', 503);
+        }
+        $callback = $this->googleOAuth->resolveRedirectUri($redirectUri);
+        if ($callback === null) {
+            throw ApiException::validation('This callback URL is not allowed.', ['redirectUri' => ['The redirect URI is not an allowed Google callback.']]);
+        }
+
+        $state = Str::random(48);
+        $verifier = Str::random(96); // RFC 7636: 43-128 chars from the unreserved set
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $ttl = (int) config('services.google.state_ttl_minutes', 10);
+        Cache::put('google:oauth:'.hash('sha256', $state), ['verifier' => $verifier, 'redirect_uri' => $callback], now()->addMinutes($ttl));
+
+        return [
+            'url' => $this->googleOAuth->authorizationUrl($state, $challenge, $callback, $loginHint),
+            'state' => $state,
+            'redirectUri' => $callback,
+            'expiresIn' => $ttl * 60,
+        ];
+    }
+
+    /** Exchange the code from Google's redirect for a verified ID token (state is consumed). */
+    private function idTokenFromCode(string $code, string $state): string
+    {
+        $pending = Cache::pull('google:oauth:'.hash('sha256', $state));
+        if (! is_array($pending)) {
+            throw ApiException::unauthenticated('Your Google sign-in expired. Please try again.');
+        }
+        $idToken = $this->googleOAuth->exchangeCode($code, $pending['verifier'], $pending['redirect_uri']);
+        if ($idToken === null) {
+            throw ApiException::unauthenticated('We could not verify your Google account. Please try again.');
+        }
+
+        return $idToken;
+    }
 
     /** @param array{firstName:string,lastName:string,email:string,dateOfBirth:string,password:string} $data */
     public function register(array $data): array
@@ -63,9 +113,17 @@ class AuthService
         return $this->response($user, $this->tokens->issueCustomer($user, $deviceName));
     }
 
-    public function social(string $provider, string $idToken, ?string $deviceName): array
+    /**
+     * POST /auth/social: sign in or sign up with Google, either with an ID token
+     * (Google Identity Services button, Android/iOS SDKs) or with the `code` +
+     * `state` Google returned to the web callback (redirect flow).
+     */
+    public function social(string $provider, ?string $idToken, ?string $deviceName, ?string $code = null, ?string $state = null): array
     {
-        $profile = $provider === 'google' ? $this->google->verify($idToken) : null;
+        if ($provider === 'google' && ($idToken === null || $idToken === '') && $code !== null) {
+            $idToken = $this->idTokenFromCode($code, (string) $state);
+        }
+        $profile = $provider === 'google' && $idToken ? $this->google->verify($idToken) : null;
         if ($profile === null) {
             throw ApiException::unauthenticated('We could not verify your Google account. Please try again.');
         }

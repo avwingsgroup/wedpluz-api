@@ -122,7 +122,7 @@ Paths can be overridden with `PREMBLY_ENDPOINT_*` (and `resident_card` added) wi
 
 ## 8. Google Sign-In
 
-`POST /auth/social` (provider `google`) accepts an ID token from Google Identity Services (web) or the native SDKs. The token is verified locally against Google's JWKS (cached), and `iss`, `aud` (must be one of `GOOGLE_CLIENT_IDS`), `exp` and `email_verified` are checked. No Google client secret is needed on the server.
+Two flows, both ending in `POST /auth/social`. **Redirect flow (web):** `GET /auth/google/redirect` returns Google's consent URL (authorization code + PKCE, single-use `state` cached for 10 minutes); Google returns to the web callback with `code` and `state`, the web app posts them, and the API exchanges the code with `GOOGLE_CLIENT_SECRET` server-to-server and verifies the returned ID token. Callbacks are limited to `GOOGLE_REDIRECT_URI` + `GOOGLE_REDIRECT_URIS`. **ID-token flow (button, One Tap, mobile SDKs):** `POST /auth/social` accepts an ID token from Google Identity Services (web) or the native SDKs. The token is verified locally against Google's JWKS (cached), and `iss`, `aud` (must be one of `GOOGLE_CLIENT_IDS`), `exp` and `email_verified` are checked. No Google client secret is needed on the server.
 
 ## 9. LiveKit
 

@@ -52,6 +52,12 @@ class ApiException extends RuntimeException
         return new self($message, 'FORBIDDEN', 403);
     }
 
+    /** Email not verified yet: the client offers a "Verify email" action (additive code). */
+    public static function emailUnverified(string $message = 'Verify your email to continue.'): self
+    {
+        return new self($message, 'EMAIL_UNVERIFIED', 403);
+    }
+
     public static function identityUnverified(string $message = 'Verify your identity to continue.'): self
     {
         return new self($message, 'IDENTITY_UNVERIFIED', 403);

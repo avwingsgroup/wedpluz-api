@@ -21,6 +21,7 @@ use App\Services\Vendors\VendorPresenter;
 use App\Services\Vendors\VendorService;
 use App\Support\ListQuery;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -55,9 +56,12 @@ class VendorController extends Controller
         return $this->ok($this->presenter->summaries($vendors, $this->optionalCustomer()));
     }
 
-    public function show(string $slug): JsonResponse
+    public function show(string $slug): JsonResponse|RedirectResponse
     {
         $vendor = VendorProfile::query()->where('slug', $slug)->orWhere('id', $slug)->first();
+        if ($vendor === null && ($moved = $this->movedTo('vendor', $slug, VendorProfile::class))) {
+            return $moved;
+        }
         $viewer = $this->optionalCustomer();
         if ($vendor === null || ($vendor->status !== VendorStatus::Active && $vendor->user_id !== $viewer?->id)) {
             throw ApiException::notFound('Vendor not found.');

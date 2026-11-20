@@ -19,7 +19,11 @@ return [
         'admin_idle_timeout_minutes' => (int) env('AUTH_ADMIN_IDLE_TIMEOUT', 30),
         'admin_invite_ttl_hours' => (int) env('AUTH_ADMIN_INVITE_TTL_HOURS', 72),
         'minimum_age' => 13,
-        'google_client_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('GOOGLE_CLIENT_IDS', ''))))),
+        // Accepted ID-token audiences (web, Android, iOS clients); the OAuth web client is always included.
+        'google_client_ids' => array_values(array_unique(array_filter(array_map('trim', array_merge(
+            explode(',', (string) env('GOOGLE_CLIENT_IDS', '')),
+            [(string) env('GOOGLE_CLIENT_ID', '')],
+        ))))),
         // Development only: accept this fixed OTP/2FA code. Never honoured when APP_ENV=production.
         'dev_fixed_otp' => env('AUTH_DEV_FIXED_OTP'),
         // Production only: reject passwords found in public breach corpora (HIBP k-anonymity range API).
@@ -105,6 +109,8 @@ return [
             'logo' => 'f_auto,q_auto,c_limit,w_400,h_400',
             'media' => 'f_auto,q_auto,c_limit,w_2048,h_2048',
             'email' => 'f_jpg,q_auto,c_limit,w_1200',
+            // Link previews (Open Graph / X cards): JPEG for the widest bot support, 1.91:1 crop.
+            'og' => 'f_jpg,q_auto,c_fill,g_auto,w_1200,h_630',
         ],
         // JSON field => preset. Remote (non-Cloudinary) URLs are only fetched for these fields.
         'fields' => [

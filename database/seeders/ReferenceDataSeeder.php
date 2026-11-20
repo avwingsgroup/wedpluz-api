@@ -3,7 +3,9 @@
 namespace Database\Seeders;
 
 use App\Enums\AdminPermission;
+use App\Integrations\Storage\CloudinaryClient;
 use App\Models\AdminRole;
+use App\Models\Banner;
 use App\Models\CmsPage;
 use App\Models\CommissionRule;
 use App\Models\EventCategory;
@@ -32,6 +34,51 @@ class ReferenceDataSeeder extends Seeder
         $this->templates();
         $this->roles();
         $this->commission();
+        $this->onboardingSlides();
+    }
+
+    /**
+     * The sign-up / login image carousel (designs: onboarding/*.png), served as
+     * banners with placement `onboarding` (GET /banners?placement=onboarding).
+     * Images are the design's own photos with the caption removed, kept in
+     * database/seeders/assets/onboarding and uploaded to this environment's
+     * Cloudinary (or public/images when Cloudinary is not configured).
+     * firstOrCreate: admin edits made in the console are never overwritten.
+     */
+    private function onboardingSlides(): void
+    {
+        $slides = [
+            1 => 'Let the Experience Find You',
+            2 => 'Event Planning Made Easy',
+            3 => 'Show Your Work',
+        ];
+        $cloudinary = app(CloudinaryClient::class);
+        foreach ($slides as $n => $title) {
+            if (Banner::query()->where('placement', 'onboarding')->where('title', $title)->exists()) {
+                continue;
+            }
+            $source = database_path('seeders/assets/onboarding/slide-'.$n.'.jpg');
+            $url = null;
+            if ($cloudinary->isConfigured()) {
+                try {
+                    $result = $cloudinary->upload($source, 'onboarding', 'slide-'.$n, 'image', overwrite: true);
+                    $url = $cloudinary->url($result['public_id']);
+                } catch (\Throwable $e) {
+                    $this->command?->warn('Onboarding slide '.$n.' upload failed: '.$e->getMessage());
+                }
+            }
+            if ($url === null) {
+                @mkdir(public_path('images/onboarding'), 0775, true);
+                copy($source, public_path('images/onboarding/slide-'.$n.'.jpg'));
+                $url = rtrim((string) config('app.url'), '/').'/images/onboarding/slide-'.$n.'.jpg';
+            }
+
+            Banner::query()->create([
+                'title' => $title, 'subtitle' => null, 'image_url' => $url, 'cta_label' => null, 'cta_url' => null,
+                'placement' => 'onboarding', 'audience' => 'all', 'is_active' => true,
+                'priority' => 100 - $n, // slide 1 first
+            ]);
+        }
     }
 
     private function eventCategories(): void

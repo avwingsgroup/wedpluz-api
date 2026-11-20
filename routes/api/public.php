@@ -23,6 +23,7 @@ Route::middleware(['throttle:public'])->group(function () {
     Route::middleware('cache.public:300')->group(function () {
         Route::get('interests', [PlatformController::class, 'interests'])->name('interests');
         Route::get('config', [PlatformController::class, 'config'])->name('config');
+        Route::get('banners', [PlatformController::class, 'banners'])->name('banners');
         Route::get('pages/{slug}', [PlatformController::class, 'page'])->name('pages.show');
         Route::get('categories', [EventController::class, 'categories'])->name('categories');
         Route::get('plans', [SubscriptionController::class, 'plans'])->name('plans');

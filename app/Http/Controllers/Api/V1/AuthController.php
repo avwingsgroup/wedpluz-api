@@ -16,6 +16,7 @@ use App\Services\Auth\AuthService;
 use App\Services\Auth\OtpService;
 use App\Services\Auth\TokenService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 class AuthController extends Controller
@@ -38,7 +39,24 @@ class AuthController extends Controller
 
     public function social(SocialAuthRequest $request): JsonResponse
     {
-        return $this->ok($this->auth->social($request->string('provider'), $request->string('idToken'), $request->input('deviceName')));
+        return $this->ok($this->auth->social(
+            $request->string('provider'),
+            $request->input('idToken'),
+            $request->input('deviceName'),
+            $request->input('code'),
+            $request->input('state'),
+        ));
+    }
+
+    /** GET /auth/google/redirect?redirectUri=&loginHint= : Google consent URL for the redirect flow. */
+    public function googleRedirect(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'redirectUri' => ['nullable', 'string', 'url', 'max:500'],
+            'loginHint' => ['nullable', 'string', 'email', 'max:255'],
+        ]);
+
+        return $this->ok($this->auth->googleAuthorization($data['redirectUri'] ?? null, $data['loginHint'] ?? null));
     }
 
     public function sendOtp(OtpSendRequest $request): JsonResponse

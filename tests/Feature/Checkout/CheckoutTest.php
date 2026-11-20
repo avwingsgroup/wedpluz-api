@@ -71,7 +71,9 @@ it('blocks unverified emails from buying tickets', function () {
     $event = $this->liveEvent();
     $this->asCustomer($this->customer(['email_verified_at' => null]));
 
-    $this->postJson('/api/v1/checkout/quotes', quotePayload($event))->assertStatus(403)->assertJsonPath('message', 'Verify your email to continue.');
+    $this->postJson('/api/v1/checkout/quotes', quotePayload($event))->assertStatus(403)
+        ->assertJsonPath('code', 'EMAIL_UNVERIFIED')
+        ->assertJsonPath('message', 'Verify your email to continue.');
 });
 
 it('completes free orders immediately and issues one ticket per person', function () {

@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Integrations\Ai\ImageGenerator;
 use App\Integrations\Ai\PlannerAssistant;
 use App\Integrations\Google\GoogleIdTokenVerifier;
+use App\Integrations\Google\GoogleOAuthClient;
 use App\Integrations\Identity\IdentityVerifier;
 use App\Integrations\Identity\PremblyVerifier;
 use App\Integrations\Live\LiveKitTokenIssuer;
@@ -69,6 +70,7 @@ class IntegrationServiceProvider extends ServiceProvider
         $this->app->singleton(LiveKitTokenIssuer::class, fn () => new LiveKitTokenIssuer(config('services.livekit')));
         $this->app->singleton(PlannerAssistant::class, fn () => new PlannerAssistant(config('services.anthropic')));
         $this->app->singleton(ImageGenerator::class, fn () => new ImageGenerator(config('services.image_generation')));
+        $this->app->singleton(GoogleOAuthClient::class, fn () => new GoogleOAuthClient(config('services.google')));
         $this->app->singleton(GoogleIdTokenVerifier::class, fn () => new GoogleIdTokenVerifier(
             config('wedpluz.auth.google_client_ids', []),
             config('services.google'),

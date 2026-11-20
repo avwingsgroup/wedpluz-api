@@ -11,6 +11,7 @@ use App\Models\VendorPromo;
 use App\Models\VendorReview;
 use App\Models\VendorWork;
 use App\Services\Media\UploadService;
+use App\Services\Platform\SlugHistory;
 use App\Support\Codes;
 use App\Support\ListQuery;
 use App\Support\Sql;
@@ -76,6 +77,7 @@ class VendorService
             $profile = VendorProfile::query()->create([
                 'user_id' => $user->id,
                 'business_name' => $data['businessName'],
+                'headline' => isset($data['headline']) ? (trim((string) $data['headline']) ?: null) : null,
                 'slug' => $this->slug($data['businessName']),
                 'category_id' => $data['categoryId'],
                 'location' => $data['location'],
@@ -105,6 +107,9 @@ class VendorService
                 $changes[$column] = $data[$key];
             }
         }
+        if (array_key_exists('headline', $data)) {
+            $changes['headline'] = trim((string) $data['headline']) ?: null;
+        }
         if (isset($data['businessName']) && $data['businessName'] !== $profile->business_name) {
             $changes['business_name'] = $data['businessName'];
         }
@@ -129,7 +134,12 @@ class VendorService
             $changes['status'] = VendorStatus::PendingVerification;
             $changes['rejection_reason'] = null;
         }
+        $renamed = isset($changes['business_name']);
         $profile->forceFill($changes)->save();
+        if ($renamed) {
+            // The URL follows the business name; links to a verified profile keep working via a redirect.
+            app(SlugHistory::class)->change('vendor', $profile, $this->slug($profile->business_name), rememberOld: $profile->verified_at !== null);
+        }
 
         return $profile->refresh();
     }
@@ -261,7 +271,7 @@ class VendorService
     {
         $base = Str::slug(Str::limit($name, 80, '')) ?: 'vendor';
         $slug = $base;
-        while (VendorProfile::withTrashed()->where('slug', $slug)->exists()) {
+        while (VendorProfile::withTrashed()->where('slug', $slug)->exists() || app(SlugHistory::class)->reserved('vendor', $slug)) {
             $slug = $base.'-'.strtolower(Codes::random(4));
         }
 

@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Exceptions\ApiException;
+use App\Http\Controllers\SeoController;
 use App\Models\AdminUser;
 use App\Models\CommunityInvite;
+use App\Models\Event;
 use App\Models\EventManager;
 use App\Models\EventRequest;
 use App\Models\EventVendorAssignment;
@@ -14,6 +16,7 @@ use App\Models\PersonalAccessToken;
 use App\Models\StatusPost;
 use App\Models\SubscriptionPayment;
 use App\Models\User;
+use App\Models\VendorProfile;
 use App\Models\VendorWork;
 use App\Models\WalletTransaction;
 use App\Services\Events\EventAccess;
@@ -44,6 +47,12 @@ class AppServiceProvider extends ServiceProvider
     {
         Model::shouldBeStrict(! $this->app->isProduction());
         Model::automaticallyEagerLoadRelationships(false);
+
+        // Sitemaps regenerate after any public-facing change to events or vendors.
+        foreach ([Event::class, VendorProfile::class] as $model) {
+            $model::saved(fn () => SeoController::invalidate());
+            $model::deleted(fn () => SeoController::invalidate());
+        }
 
         // Queue workers report liveness for /health (throttled to one write per 15 s per worker).
         Queue::looping(fn (Looping $event) => HealthCheck::beatWorker($event->connectionName));

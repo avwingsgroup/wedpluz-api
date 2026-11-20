@@ -166,6 +166,8 @@ php artisan queue:work redis-long --queue=long --timeout=930
 
 The fast worker serves five queues in priority order, so it uses a non-blocking pop with `--sleep=1` (a blocking pop on `critical` would delay every lower queue); the single-queue long worker uses a blocking pop. Every job sets an explicit `$timeout` below its connection's `retry_after`, so a slow job is never handed to a second worker while still running. Jobs are idempotent (row locks, unique keys, `dedupe_key`) so retries are safe.
 
+**Windows / Apache mod_php.** Under a thread-safe SAPI (Laragon's Apache with `mod_php`), `putenv`/`getenv` are process-wide and not thread-safe, so parallel requests could lose `.env` values (seen as missing CORS headers). `bootstrap/app.php` disables `putenv` for thread-safe non-CLI SAPIs, keeping env values in the per-request `$_SERVER`/`$_ENV`; `config:cache` is no longer required locally.
+
 **Health.** Workers write a heartbeat on every loop and the scheduler once a minute. `GET /api/v1/health` reports database, Redis, cache, queue and scheduler (`503` only when a critical dependency is down; `degraded` when workers or the scheduler stall). `GET /api/v1/health/details` (header `X-Health-Token`) adds latencies, queue depths, failed jobs, heartbeat ages, storage and configured integrations. `php artisan wedpluz:health --ping-queue` pushes a probe job through each connection and waits for a worker to run it.
 
 The scheduler (`routes/console.php`) runs on exactly one host (`onOneServer` uses a Redis lock):
@@ -201,7 +203,22 @@ Realtime is optional (`BROADCAST_CONNECTION=reverb` turns it on). Services call 
 | `private-admin` | any active admin |
 | `private-admin.moderation` | admins with `moderation.view` |
 
-## 10. Cross-cutting safeguards
+## 10. SEO endpoints and slug history
+
+Outside `/api/v1`, without session or cookies (`routes/seo.php`, `SeoController`):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /sitemaps/index.xml` | Sitemap index (files split at 50,000 URLs, `?page=N`) |
+| `GET /sitemaps/events.xml` | Public live events, plus completed ones for 90 days; `<lastmod>` and the cover as `<image:image>` |
+| `GET /sitemaps/vendors.xml` | Active vendor profiles |
+| `GET /share/events/{slug}`, `GET /share/vendors/{slug}` | HTML for link-preview bots (WhatsApp, Facebook, X…): Open Graph and X card tags with a 1200×630 Cloudinary crop, canonical link, JSON-LD (`Event` / `LocalBusiness`), short visible summary. 404 when not public, 410 when deleted. |
+
+Sitemaps are cached for an hour and invalidated whenever an event or vendor is saved. URLs point at `WEDPLUZ_WEB_ORIGIN`. The web host sends only preview bots to `/share/*` (nginx `map` on the user agent).
+
+**Slug history.** Renaming a published event or a verified vendor gives it a new slug and records the old one in `slug_redirects` (pointing at the record, so chains of renames resolve in one hop). Old slugs answer `301` to the current one on `GET /api/v1/events/{slug}`, `GET /api/v1/vendors/{slug}` and the share pages, only while the record is public.
+
+## 11. Cross-cutting safeguards
 
 - **Idempotency:** `Idempotency-Key` on order creation, wallet top-up and withdrawal, and subscription checkout. The key is scoped to user + endpoint; the same key with a different body returns `409`, an in-flight duplicate returns `409`, a completed one replays the stored response.
 - **Webhooks:** signature verified first (HMAC/SHA-512 for Paystack and Monnify, Stripe `t=,v1=` with 5-minute tolerance, PayPal verify-signature API, Flutterwave `verif-hash`, Meta `X-Hub-Signature-256`, HMAC-SHA512 for Prembly, shared secrets for Termii and ZeptoMail, Twilio `X-Twilio-Signature`). Failures are written to `security_logs`; duplicates are acknowledged with `200` and ignored.

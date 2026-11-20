@@ -11,6 +11,7 @@ class UpdateVendorProfileRequest extends ApiRequest
     {
         return [
             'businessName' => ['sometimes', 'required', 'string', 'max:200'],
+            'headline' => ['sometimes', 'nullable', 'string', 'max:80'],
             'location' => ['sometimes', 'required', 'string', 'max:200'],
             'categoryId' => ['sometimes', 'required', 'string', 'exists:vendor_categories,id'],
             'description' => ['sometimes', 'required', 'string', 'max:5000'],

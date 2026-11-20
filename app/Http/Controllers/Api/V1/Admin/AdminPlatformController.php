@@ -116,7 +116,7 @@ class AdminPlatformController extends Controller
             'title' => [$req, 'string', 'max:200'], 'subtitle' => ['sometimes', 'nullable', 'string', 'max:500'],
             'imageUrl' => ['sometimes', 'nullable', 'url', 'max:1024'], 'ctaLabel' => ['sometimes', 'nullable', 'string', 'max:60'],
             'ctaUrl' => ['sometimes', 'nullable', 'url', 'max:1024'],
-            'placement' => ['sometimes', 'in:home_hero,home_inline,events_top,vendors_top,app_home'],
+            'placement' => ['sometimes', 'in:'.implode(',', Banner::PLACEMENTS)],
             'audience' => ['sometimes', 'in:all,individuals,businesses,guests'],
             'startsAt' => ['sometimes', 'nullable', 'date'], 'endsAt' => ['sometimes', 'nullable', 'date', 'after_or_equal:startsAt'],
             'isActive' => ['sometimes', 'boolean'], 'priority' => ['sometimes', 'integer', 'min:0', 'max:1000'],

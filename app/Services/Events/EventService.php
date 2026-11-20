@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Services\Communities\CommunityService;
 use App\Services\Finance\SettlementService;
 use App\Services\Media\UploadService;
+use App\Services\Platform\SlugHistory;
 use App\Services\Subscriptions\PlanGate;
 use App\Support\Codes;
 use App\Support\RichText;
@@ -86,7 +87,12 @@ class EventService
 
         DB::transaction(function () use ($event, $user, $data) {
             Event::query()->whereKey($event->id)->lockForUpdate()->first();
+            $oldTitle = $event->title;
             $this->apply($event, $user, $data, isNew: false);
+            if ($event->title !== $oldTitle) {
+                // The URL follows the title; links to a published event keep working via a redirect.
+                app(SlugHistory::class)->change('event', $event, $this->uniqueSlug($event->title), rememberOld: $event->published_at !== null);
+            }
             if ($event->status === EventStatus::Rejected) {
                 // A rejected event returns to editable and can be republished.
                 $event->forceFill(['status' => EventStatus::Draft])->save();
@@ -535,7 +541,7 @@ class EventService
         $base = Str::slug(Str::limit($title, 80, '')) ?: 'event';
         do {
             $slug = $base.'-'.strtolower(Codes::random(6));
-        } while (Event::withTrashed()->where('slug', $slug)->exists());
+        } while (Event::withTrashed()->where('slug', $slug)->exists() || app(SlugHistory::class)->reserved('event', $slug));
 
         return $slug;
     }

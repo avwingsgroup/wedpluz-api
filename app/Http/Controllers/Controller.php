@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\AdminUser;
 use App\Models\User;
+use App\Services\Platform\SlugHistory;
 use App\Support\ListQuery;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
 
@@ -19,6 +22,36 @@ use Illuminate\Http\Response;
  */
 abstract class Controller
 {
+    /**
+     * 301 from a renamed event's or vendor's old slug to its current one (same
+     * path, last segment swapped), only when the record is publicly visible;
+     * otherwise null and the caller answers 404 as usual.
+     *
+     * @param  class-string<Model>  $modelClass
+     */
+    protected function movedTo(string $type, string $slug, string $modelClass): ?RedirectResponse
+    {
+        $id = app(SlugHistory::class)->resolve($type, $slug);
+        $target = $id ? $modelClass::query()->find($id) : null;
+        if ($target === null || ! self::publiclyVisible($type, $target)) {
+            return null;
+        }
+        $request = request();
+        $url = preg_replace('#/'.preg_quote(rawurlencode($slug), '#').'$#', '/'.rawurlencode((string) $target->slug), $request->url());
+        $query = $request->getQueryString();
+
+        return redirect()->to($url.($query ? '?'.$query : ''), 301)->header('Cache-Control', 'public, max-age=3600');
+    }
+
+    public static function publiclyVisible(string $type, Model $record): bool
+    {
+        $value = fn ($v) => $v instanceof \BackedEnum ? $v->value : $v;
+
+        return $type === 'event'
+            ? $value($record->visibility) === 'public' && in_array($value($record->status), ['live', 'completed'], true)
+            : $value($record->status) === 'active';
+    }
+
     protected function ok(mixed $data, ?string $message = null, int $status = 200): JsonResponse
     {
         $payload = ['data' => $this->resolveData($data)];
