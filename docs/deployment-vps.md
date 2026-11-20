@@ -235,6 +235,7 @@ Test a restore on a spare database every quarter.
 | Symptom | Check |
 |---|---|
 | Deploy fails at "Configure SSH" or "Upload release" | `VPS_KNOWN_HOSTS` matches `ssh-keyscan`; the public key is in `/home/usir/.ssh/authorized_keys`; the SSH port is open. |
+| Provisioning stops at the PostgreSQL step | Run `sudo pg_lsclusters`. The script uses a running cluster on whatever port it has, starts a stopped one, and installs PostgreSQL 19 only when there is none. If port 5432 belongs to Docker or another server, re-run with `--no-postgres` and set `DB_HOST`, `DB_PORT` and the other `DB_*` values in `shared/.env`. |
 | `sudo: unknown user` in "Activate release" | `VPS_APP_USER` names a user that doesn't exist; delete the variable to deploy as `usir`. |
 | "Could not reload php8.5-fpm" in the deploy log | `sudo -l -U usir` must list the `systemctl reload php8.5-fpm` rule from `/etc/sudoers.d/wedpluz-api` (re-run provisioning). |
 | Provisioning stops at "Another nginx site already serves" | Remove or rename that site's `server_name`, then re-run. |

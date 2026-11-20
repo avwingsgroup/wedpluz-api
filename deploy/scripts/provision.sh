@@ -195,12 +195,39 @@ if ! command -v composer >/dev/null 2>&1; then
 fi
 
 # ------------------------------------------------------------------ PostgreSQL
-DB_DATABASE="wedpluz"; DB_USERNAME="wedpluz"; DB_PASSWORD=""
+DB_DATABASE="wedpluz"; DB_USERNAME="wedpluz"; DB_PASSWORD=""; DB_PORT=5432
+PG_CLUSTER=""; PG_PORT=""; PG_STATUS=""
+find_cluster() {
+    # Picks the best real cluster from pg_lsclusters (ver name port status ...):
+    # online PG_VERSION > any online > PG_VERSION down > any down. Empty when none exist.
+    # (`systemctl is-active postgresql` is useless here: that umbrella unit reports
+    # "active" even when no server is running.)
+    PG_CLUSTER=""; PG_PORT=""; PG_STATUS=""
+    command -v pg_lsclusters >/dev/null 2>&1 || return 0
+    local ver name port status rank best=9
+    while read -r ver name port status _; do
+        [[ -n "$ver" && "$port" =~ ^[0-9]+$ ]] || continue
+        if [[ "$status" == online* ]]; then rank=2; else rank=4; fi
+        if [[ "$ver" == "$PG_VERSION" ]]; then rank=$((rank - 1)); fi
+        if (( rank < best )); then
+            best=$rank; PG_CLUSTER="$ver/$name"; PG_PORT="$port"; PG_STATUS="$status"
+        fi
+    done < <(pg_lsclusters --no-header 2>/dev/null || true)
+}
+pg_sql() {
+    # psql as the postgres superuser on the chosen cluster; stops at the first SQL error.
+    (cd /tmp && sudo -u postgres psql -X -q -p "$PG_PORT" -v ON_ERROR_STOP=1 "$@")
+}
+
 if [[ $WITH_POSTGRES -eq 1 ]]; then
     step "PostgreSQL"
-    if command -v psql >/dev/null 2>&1 && systemctl is-active --quiet postgresql; then
-        ok "Using the existing PostgreSQL ($(sudo -u postgres psql -tAc 'SHOW server_version;' | cut -d' ' -f1))"
-    else
+    find_cluster
+    if [[ -z "$PG_CLUSTER" ]]; then
+        # No local cluster. If something else already answers on 5432 (Docker, a manual
+        # install), don't install a second server next to it.
+        if ss -Hltn 'sport = :5432' 2>/dev/null | grep -q .; then
+            die "Port 5432 is in use, but no local PostgreSQL cluster exists (Docker or another install?). Re-run with --no-postgres and set DB_HOST/DB_PORT/DB_* in $APP_DIR/shared/.env to that server."
+        fi
         if [[ ! -f /etc/apt/sources.list.d/pgdg.list ]]; then
             install -d /usr/share/postgresql-common/pgdg
             curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
@@ -209,19 +236,42 @@ if [[ $WITH_POSTGRES -eq 1 ]]; then
             apt-get update -qq
         fi
         apt-get -y -qq install "postgresql-${PG_VERSION}" "postgresql-client-${PG_VERSION}"
-        systemctl enable --now postgresql >/dev/null 2>&1
-        ok "Installed PostgreSQL ${PG_VERSION}"
+        find_cluster
+        if [[ -z "$PG_CLUSTER" ]]; then
+            # The package is installed but its cluster was removed earlier: create a fresh one.
+            pg_createcluster "$PG_VERSION" main --start >/dev/null
+            find_cluster
+        fi
+        [[ -n "$PG_CLUSTER" ]] || die "PostgreSQL ${PG_VERSION} installed, but no cluster was found. Check: pg_lsclusters"
+        ok "Installed PostgreSQL ${PG_VERSION} (cluster $PG_CLUSTER, port $PG_PORT)"
     fi
+    if [[ "$PG_STATUS" != online* ]]; then
+        warn "Cluster $PG_CLUSTER is $PG_STATUS; starting it."
+        pg_ctlcluster "${PG_CLUSTER%/*}" "${PG_CLUSTER#*/}" start \
+            || die "Could not start PostgreSQL $PG_CLUSTER. Check: pg_lsclusters; journalctl -u postgresql@${PG_CLUSTER/\//-} -n 50"
+        systemctl enable "postgresql@${PG_CLUSTER/\//-}" >/dev/null 2>&1 || true
+        find_cluster
+        [[ "$PG_STATUS" == online* ]] || die "PostgreSQL $PG_CLUSTER is still not online. Check: pg_lsclusters"
+    fi
+    pg_sql -c 'SELECT 1' >/dev/null \
+        || die "Cannot connect to PostgreSQL $PG_CLUSTER on port $PG_PORT as postgres. Check: pg_lsclusters"
+    ok "Using PostgreSQL cluster $PG_CLUSTER on port $PG_PORT"
+
+    DB_PORT="$PG_PORT"
     DB_PASSWORD=$(credential DB_PASSWORD)
-    if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USERNAME'" | grep -q 1; then
-        sudo -u postgres psql -qc "ALTER ROLE $DB_USERNAME PASSWORD '$DB_PASSWORD';"
-    else
-        sudo -u postgres psql -qc "CREATE ROLE $DB_USERNAME LOGIN PASSWORD '$DB_PASSWORD';"
-    fi
-    sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_DATABASE'" | grep -q 1 \
-        || sudo -u postgres createdb -O "$DB_USERNAME" -E UTF8 "$DB_DATABASE"
+    # Identifiers and the password are quoted by format(%I/%L); \gexec runs each generated statement.
+    pg_sql -v role="$DB_USERNAME" -v pw="$DB_PASSWORD" -v db="$DB_DATABASE" <<'SQL'
+SELECT format('CREATE ROLE %I LOGIN', :'role') WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'role')
+\gexec
+SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'role', :'pw')
+\gexec
+SELECT format('CREATE DATABASE %I OWNER %I ENCODING %L TEMPLATE template0', :'db', :'role', 'UTF8')
+ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db')
+\gexec
+SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', :'db')
+\gexec
+SQL
     # Only the owner may connect: other apps' roles cannot reach the Wedpluz database.
-    sudo -u postgres psql -qc "REVOKE CONNECT ON DATABASE $DB_DATABASE FROM PUBLIC;"
     ok "Dedicated role and database '$DB_DATABASE' (CONNECT revoked from PUBLIC)"
 else
     warn "Skipping PostgreSQL: set DB_* in shared/.env to the managed database."
@@ -311,7 +361,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
     BROADCAST_CONNECTION=$([[ $WITH_REVERB -eq 1 ]] && echo reverb || echo null)
     APP_URL="https://$DOMAIN"
     content=$(cat "$DEPLOY_SRC/env/production.env.example")
-    for key in APP_KEY APP_URL DOMAIN DB_DATABASE DB_USERNAME DB_PASSWORD REDIS_PASSWORD HEALTH_TOKEN BROADCAST_CONNECTION \
+    for key in APP_KEY APP_URL DOMAIN DB_DATABASE DB_USERNAME DB_PASSWORD DB_PORT REDIS_PASSWORD HEALTH_TOKEN BROADCAST_CONNECTION \
                REVERB_APP_ID REVERB_APP_KEY REVERB_APP_SECRET REVERB_PORT; do
         content="${content//\{\{$key\}\}/${!key:-}}"
     done
