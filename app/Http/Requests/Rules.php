@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\PhoneNumber;
 use Illuminate\Validation\Rules\Password;
 
 /** Shared validation rules. */
@@ -15,9 +16,10 @@ final class Rules
         return app()->isProduction() && config('wedpluz.auth.check_breached_passwords', true) ? $rule->uncompromised() : $rule;
     }
 
-    public static function phone(): string
+    /** E.164 phone number with per-country checks; input is normalised in ApiRequest first. */
+    public static function phone(): PhoneNumber
     {
-        return 'regex:/^\+[1-9]\d{7,14}$/';
+        return new PhoneNumber;
     }
 
     public static function username(): array

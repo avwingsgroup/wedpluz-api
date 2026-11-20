@@ -28,7 +28,6 @@ class CreateVendorProfileRequest extends ApiRequest
     public function messages(): array
     {
         return [
-            'contactPhone.regex' => 'Enter the phone number in international format, e.g. +2348012345678.',
         ];
     }
 }

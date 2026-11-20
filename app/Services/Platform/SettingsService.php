@@ -29,8 +29,9 @@ class SettingsService
             'general' => [
                 'platformName' => 'Wedpluz',
                 'supportEmail' => 'support@wedpluz.com',
-                'supportPhone' => '+2348000000000',
-                'supportWhatsapp' => '+2348000000000',
+                // Empty until an admin sets real numbers (Platform Configuration); the web app hides empty contact cards.
+                'supportPhone' => '',
+                'supportWhatsapp' => '',
                 'defaultCurrency' => 'NGN',
                 'defaultCountry' => 'NG',
                 'timezone' => config('wedpluz.timezone', 'Africa/Lagos'),
@@ -130,14 +131,14 @@ class SettingsService
     public function flush(): void
     {
         Cache::forget(self::CACHE_KEY);
-        Cache::forget('public_config:v1');
+        Cache::forget('public_config:v2');
         $this->memo = null;
     }
 
     /** GET /config payload: public values only. */
     public function publicConfig(): array
     {
-        return Cache::remember('public_config:v1', 300, function () {
+        return Cache::remember('public_config:v2', 300, function () {
             $s = $this->all();
 
             return [

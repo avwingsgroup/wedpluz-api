@@ -1,0 +1,14 @@
+# Wedpluz API — dedicated sudo rules (rendered to /etc/sudoers.d/wedpluz-api, validated with visudo).
+# Nothing here grants access to other apps or to a root shell.
+
+# The operator / CI user deploys, rolls back and backs up AS the app user (never as root).
+# The /tmp rule runs the deploy.sh that GitHub Actions uploads with each release.
+{{SSH_USER}} ALL=({{APP_USER}}) NOPASSWD: /usr/local/bin/wedpluz-deploy *, /usr/local/bin/wedpluz-rollback, /usr/local/bin/wedpluz-rollback *, /usr/local/bin/wedpluz-backup, /usr/local/bin/wedpluz-backup *
+{{SSH_USER}} ALL=({{APP_USER}}) NOPASSWD: /usr/bin/bash /tmp/wedpluz-deploy-*.sh *
+{{SSH_USER}} ALL=({{APP_USER}}) NOPASSWD: {{PHP_BIN}} {{APP_DIR}}/current/artisan *
+
+# The app user may reload PHP-FPM (clears OPcache after a deploy) and control only its own programs.
+{{APP_USER}} ALL=(root) NOPASSWD: /usr/bin/systemctl reload {{FPM_SERVICE}}
+{{APP_USER}} ALL=(root) NOPASSWD: /usr/bin/supervisorctl status wedpluz-api\:*, /usr/bin/supervisorctl status wedpluz-api-reverb
+{{APP_USER}} ALL=(root) NOPASSWD: /usr/bin/supervisorctl start wedpluz-api\:*, /usr/bin/supervisorctl restart wedpluz-api\:*, /usr/bin/supervisorctl stop wedpluz-api\:*
+{{APP_USER}} ALL=(root) NOPASSWD: /usr/bin/supervisorctl start wedpluz-api-reverb, /usr/bin/supervisorctl restart wedpluz-api-reverb

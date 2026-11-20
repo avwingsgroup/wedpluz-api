@@ -1,0 +1,49 @@
+; Wedpluz API — dedicated PHP-FPM pool (rendered to /etc/php/{{PHP_VERSION}}/fpm/pool.d/wedpluz.conf).
+; Runs as the app user so the app can write shared/storage; nginx talks to it over a private socket.
+; All PHP settings for Wedpluz live here (php_admin_value), so other apps' pools and the global
+; php.ini are never changed.
+[wedpluz]
+user = {{APP_USER}}
+group = {{APP_USER}}
+
+listen = {{FPM_SOCKET}}
+listen.owner = www-data
+listen.group = www-data
+listen.mode = 0660
+
+; Sized by provision.sh from available RAM (~80 MB per worker, about half the RAM on a shared server).
+pm = dynamic
+pm.max_children = {{FPM_MAX_CHILDREN}}
+pm.start_servers = {{FPM_START}}
+pm.min_spare_servers = {{FPM_MIN_SPARE}}
+pm.max_spare_servers = {{FPM_MAX_SPARE}}
+pm.max_requests = 500
+
+request_terminate_timeout = 120s
+request_slowlog_timeout = 5s
+slowlog = {{LOG_DIR}}/php-fpm-slow.log
+php_admin_value[error_log] = {{LOG_DIR}}/php-fpm-error.log
+php_admin_flag[log_errors] = on
+
+; Status page for monitoring (only reachable through the socket; nginx does not expose it).
+pm.status_path = /fpm-status
+
+catch_workers_output = yes
+decorate_workers_output = no
+clear_env = no
+
+; ---- PHP settings for this pool only ------------------------------------------
+php_admin_value[memory_limit] = 256M
+php_admin_value[max_execution_time] = 60
+php_admin_value[max_input_time] = 60
+; Largest upload purpose is 50 MB (vendor works, message attachments).
+php_admin_value[upload_max_filesize] = 60M
+php_admin_value[post_max_size] = 64M
+php_admin_value[date.timezone] = UTC
+; Code only changes on deploy, and deploy reloads PHP-FPM: skip per-request file stat calls.
+php_admin_value[opcache.validate_timestamps] = 0
+php_admin_value[opcache.revalidate_freq] = 0
+; Keep the app inside its own directory tree and temporary files private.
+php_admin_value[open_basedir] = {{APP_DIR}}/:/tmp/:/usr/share/php/:/dev/urandom
+php_admin_value[sys_temp_dir] = /tmp
+php_admin_value[upload_tmp_dir] = /tmp

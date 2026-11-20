@@ -1,0 +1,10 @@
+# Wedpluz API — scheduled tasks (rendered to /etc/cron.d/wedpluz-api). Times are UTC.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Laravel scheduler: order expiry, reminders, settlements, retention, reconciliation (routes/console.php).
+# Resolves `current` every minute, so it always runs the live release.
+* * * * * {{APP_USER}} cd {{APP_DIR}}/current && {{PHP_BIN}} artisan schedule:run >> /dev/null 2>&1
+
+# Nightly database backup (01:30 UTC = 02:30 WAT), kept 14 days, in the dedicated Wedpluz directory.
+30 1 * * * {{APP_USER}} /usr/local/bin/wedpluz-backup --app-dir {{APP_DIR}} --dir {{BACKUP_DIR}} >> {{LOG_DIR}}/backup.log 2>&1

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\PhoneNumber;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 
@@ -16,6 +17,16 @@ abstract class ApiRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    /** Phone fields are normalised to E.164 before validation (spaces, dashes, brackets, `00` prefix). */
+    protected function prepareForValidation(): void
+    {
+        foreach (['phone', 'contactPhone'] as $field) {
+            if ($this->has($field)) {
+                $this->merge([$field => PhoneNumber::normalize($this->input($field))]);
+            }
+        }
     }
 
     public function attributes(): array

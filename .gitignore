@@ -31,3 +31,7 @@ Homestead.json
 auth.json
 .env.testing
 auth2.md
+
+# CI deployment build files
+/REVISION
+/release.tar.gz

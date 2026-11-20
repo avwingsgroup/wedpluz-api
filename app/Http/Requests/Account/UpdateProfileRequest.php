@@ -25,7 +25,6 @@ class UpdateProfileRequest extends ApiRequest
     public function messages(): array
     {
         return [
-            'phone.regex' => 'Enter the phone number in international format, e.g. +2348012345678.',
             'username.regex' => 'Usernames may only contain lowercase letters, numbers, underscores and dots.',
         ];
     }

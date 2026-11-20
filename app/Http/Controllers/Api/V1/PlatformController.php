@@ -42,9 +42,19 @@ class PlatformController extends Controller
             ->get()->map(fn (Interest $i) => ['label' => $i->label, 'slug' => $i->slug])->all());
     }
 
-    public function config(SettingsService $settings): JsonResponse
+    /**
+     * GET /config. `geo.countryCode` is the visitor's country from the edge (Cloudflare's
+     * CF-IPCountry by default, GEO_COUNTRY_HEADER to change), or null when unknown. It only
+     * pre-selects the phone country picker, so a spoofed header is harmless.
+     */
+    public function config(Request $request, SettingsService $settings): JsonResponse
     {
-        return $this->ok($settings->publicConfig());
+        $header = (string) config('wedpluz.geo.country_header', 'CF-IPCountry');
+        $country = strtoupper(trim((string) $request->header($header, '')));
+        $valid = preg_match('/^[A-Z]{2}$/', $country) && ! in_array($country, ['XX', 'T1'], true); // XX unknown, T1 Tor
+
+        return $this->ok($settings->publicConfig() + ['geo' => ['countryCode' => $valid ? $country : null]])
+            ->header('Vary', $header); // the response differs per visitor country, so shared caches must key on it
     }
 
     /**

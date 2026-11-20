@@ -1,0 +1,59 @@
+; Wedpluz API — background processes (rendered to /etc/supervisor/conf.d/wedpluz-api.conf).
+; Every name is prefixed wedpluz-api- so nothing collides with other apps on the server.
+; Workers restart themselves on deploy (`php artisan queue:restart`); Supervisor starts them on the new release.
+
+[program:wedpluz-api-queue]
+; Fast jobs (≤120 s), in priority order: money first, bulk last. Non-blocking pop + 1 s sleep.
+command={{PHP_BIN}} -d memory_limit=512M {{APP_DIR}}/current/artisan queue:work redis --queue=critical,notifications,broadcasts,default,low --sleep=1 --tries=3 --timeout=150 --max-time=3600 --memory=256
+directory={{APP_DIR}}/current
+user={{APP_USER}}
+numprocs={{QUEUE_WORKERS}}
+process_name=%(program_name)s_%(process_num)02d
+autostart=true
+autorestart=true
+startsecs=3
+; Let a running job finish (worker timeout 150 s) before Supervisor kills it on stop.
+stopwaitsecs=180
+stopasgroup=true
+killasgroup=true
+redirect_stderr=true
+stdout_logfile={{LOG_DIR}}/queue.log
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5
+
+[program:wedpluz-api-queue-long]
+; Long jobs (event cancellation fan-out, exports, design generation) on their own connection.
+command={{PHP_BIN}} -d memory_limit=768M {{APP_DIR}}/current/artisan queue:work redis-long --queue=long --tries=2 --timeout=930 --max-time=3600 --memory=512
+directory={{APP_DIR}}/current
+user={{APP_USER}}
+numprocs=1
+process_name=%(program_name)s_%(process_num)02d
+autostart=true
+autorestart=true
+startsecs=3
+stopwaitsecs=960
+stopasgroup=true
+killasgroup=true
+redirect_stderr=true
+stdout_logfile={{LOG_DIR}}/queue-long.log
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5
+
+[program:wedpluz-api-reverb]
+; Realtime WebSocket server, enabled by provision.sh --reverb (BROADCAST_CONNECTION=reverb in shared/.env).
+; Kept outside the group: `supervisorctl start wedpluz-api:*` (run by deploy.sh) must not switch on
+; realtime when it is disabled.
+command={{PHP_BIN}} {{APP_DIR}}/current/artisan reverb:start --host=127.0.0.1 --port={{REVERB_PORT}} --no-interaction
+directory={{APP_DIR}}/current
+user={{APP_USER}}
+autostart={{REVERB_AUTOSTART}}
+autorestart=true
+startsecs=3
+stopwaitsecs=30
+redirect_stderr=true
+stdout_logfile={{LOG_DIR}}/reverb.log
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5
+
+[group:wedpluz-api]
+programs=wedpluz-api-queue,wedpluz-api-queue-long

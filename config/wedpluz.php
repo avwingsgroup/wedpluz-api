@@ -127,6 +127,11 @@ return [
     // Feature => minimum plan tier (free | premium). Overrides PlanGate::FEATURES.
     'plan_features' => [],
 
+    'geo' => [
+        // Request header carrying the visitor's ISO country code, set by the CDN/edge.
+        'country_header' => env('GEO_COUNTRY_HEADER', 'CF-IPCountry'),
+    ],
+
     'health' => [
         // Required for GET /health/details outside local (header X-Health-Token).
         'token' => env('HEALTH_CHECK_TOKEN'),

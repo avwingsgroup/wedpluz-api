@@ -1,0 +1,134 @@
+name: Deploy
+
+# Automatic: every push to the `production` branch (tests must pass first).
+# Manual:    Actions → Deploy → Run workflow (any ref, optional reference-data seed).
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to deploy
+        required: true
+        default: production
+      seed_reference:
+        description: Run ReferenceDataSeeder (first deploy; safe to repeat)
+        type: boolean
+        default: false
+
+# One deployment at a time; a newer push waits instead of cancelling a deploy halfway.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build release artifact
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pgsql, redis, gd, intl, bcmath, zip, mbstring
+          coverage: none
+          tools: composer:v2
+
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+
+      - name: Package
+        id: meta
+        run: |
+          SHA=$(git rev-parse HEAD)
+          echo "$SHA" > REVISION
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          # Ship only what runs in production: no tests, docs, CI files, local env or storage contents.
+          tar --exclude='./.git' --exclude='./.github' --exclude='./tests' --exclude='./docs' \
+              --exclude='./node_modules' --exclude='./storage' --exclude='./.env' --exclude='./.env.*' \
+              --exclude='./phpunit.xml' --exclude='./auth2.md' --exclude='./release.tar.gz' \
+              -czf release.tar.gz .
+          ls -lh release.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            release.tar.gz
+            deploy/scripts/deploy.sh
+          retention-days: 7
+
+  deploy:
+    name: Deploy to VPS
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    env:
+      SHA: ${{ needs.build.outputs.sha }}
+      SSH_PORT: ${{ secrets.VPS_PORT || '22' }}
+      # SSH as the operator (usir); the release runs as the app user through a dedicated sudo rule.
+      APP_USER: ${{ vars.VPS_APP_USER || 'deploy-wedpluz' }}
+      TARGET: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+
+      - name: Configure SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pinned host key (VPS_KNOWN_HOSTS) prevents man-in-the-middle; never use StrictHostKeyChecking=no.
+          printf '%s\n' "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<EOF
+          Host vps
+            HostName ${{ secrets.VPS_HOST }}
+            User ${{ secrets.VPS_USER }}
+            Port $SSH_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            ServerAliveInterval 30
+          EOF
+
+      - name: Upload release
+        run: |
+          scp -q release.tar.gz "vps:/tmp/wedpluz-api-$SHA.tar.gz"
+          scp -q deploy/scripts/deploy.sh "vps:/tmp/wedpluz-deploy-$SHA.sh"
+          # Readable by the app user, which unpacks the release.
+          ssh vps "chmod 644 /tmp/wedpluz-api-$SHA.tar.gz /tmp/wedpluz-deploy-$SHA.sh"
+
+      - name: Activate release
+        run: |
+          SEED=""
+          if [ "${{ inputs.seed_reference }}" = "true" ]; then SEED="--seed-reference"; fi
+          # Matches /etc/sudoers.d/wedpluz-api: usir may run /usr/bin/bash /tmp/wedpluz-deploy-*.sh as the app user.
+          ssh vps "sudo -n -u $APP_USER /usr/bin/bash /tmp/wedpluz-deploy-$SHA.sh --artifact /tmp/wedpluz-api-$SHA.tar.gz $SEED; status=\$?; rm -f /tmp/wedpluz-api-$SHA.tar.gz /tmp/wedpluz-deploy-$SHA.sh; exit \$status"
+
+      - name: Public health check
+        if: ${{ vars.APP_URL != '' }}
+        run: |
+          curl -fsS --retry 5 --retry-delay 3 "${{ vars.APP_URL }}/api/v1/health" | tee /dev/stderr | grep -q '"status":"ok"\|"status":"degraded"'
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Deploy ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${SHA:0:7}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target: ${{ vars.APP_URL || 'VPS' }}" >> "$GITHUB_STEP_SUMMARY"

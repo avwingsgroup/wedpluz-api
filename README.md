@@ -91,6 +91,7 @@ Tests run against a real PostgreSQL database (`wedpluz_test`, configured in `php
 | [docs/api-documentation.yaml](docs/api-documentation.yaml) | OpenAPI 3.1 for the implemented API |
 | [docs/integrations.md](docs/integrations.md) | Each provider, webhooks and verification, failover, key ownership |
 | [docs/environment-variables.md](docs/environment-variables.md) | Every variable, default and production requirement |
+| [docs/deployment-vps.md](docs/deployment-vps.md) | Step-by-step VPS provisioning and automatic zero-downtime deployment (`deploy/`, GitHub Actions) |
 | [docs/deployment.md](docs/deployment.md#backend-api) | Backend deployment, provider checklist, operations (frontend deployment above it) |
 | [docs/testing.md](docs/testing.md#backend-api-tests) | Backend test suites and how to run them (frontend testing above it) |
 | [docs/implementation-progress.md](docs/implementation-progress.md) | Contract coverage, test inventory, outstanding work |

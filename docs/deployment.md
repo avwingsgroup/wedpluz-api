@@ -208,6 +208,8 @@ Optionally upload source maps to Sentry in CI (`sentry-cli sourcemaps upload`) w
 
 # Backend API
 
+**Step-by-step VPS setup with automatic deployments: [deployment-vps.md](deployment-vps.md).** The scripts live in [`deploy/`](../deploy/).
+
 The sections above cover the two frontend apps. This part covers the Laravel API in this repository (`https://api.wedpluz.com`). Architecture: [architecture.md](architecture.md). Every variable: [environment-variables.md](environment-variables.md).
 
 ## B1. Runtime topology
@@ -274,14 +276,16 @@ Before launch, run one real sandbox transaction per enabled payment method (pay,
 
 ## B5. nginx essentials
 
+The full dedicated virtual host is `deploy/config/nginx.conf.template` (installed by `provision.sh`). The essentials:
+
 ```nginx
 server {
     server_name api.wedpluz.com;
-    root /var/www/wedpluz-api/public;
+    root /var/www/apps/wedpluz/api/current/public;
     client_max_body_size 60m;            # largest upload purpose is 50 MB
     location / { try_files $uri $uri/ /index.php?$query_string; }
     location ~ \.php$ {
-        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.5-fpm-wedpluz.sock;   # dedicated Wedpluz pool
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         include fastcgi_params;
         fastcgi_read_timeout 60s;
