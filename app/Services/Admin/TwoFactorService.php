@@ -77,9 +77,14 @@ class TwoFactorService
 
     private function devCode(string $code): bool
     {
-        $fixed = config('wedpluz.auth.dev_fixed_otp');
+        $fixed = (string) config('wedpluz.auth.dev_fixed_otp');
+        if ($fixed === '' || app()->isProduction()) {
+            return false;
+        }
 
-        return $fixed && ! app()->isProduction() && hash_equals((string) $fixed, $code);
+        // Admin codes are 6 digits (TOTP) while the customer dev code is usually 4, so locally the
+        // admin screens also accept it left-padded with zeros: 0000 → 000000, 1234 → 001234.
+        return hash_equals($fixed, $code) || hash_equals(str_pad($fixed, 6, '0', STR_PAD_LEFT), $code);
     }
 
     private function base32Encode(string $data): string
